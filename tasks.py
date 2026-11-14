@@ -62,6 +62,10 @@ def etl_incremental(*args):
     py("-m", "etl.pipelines.run", "--mode", "incremental", *args)
 
 
+def api(*args):
+    py("-m", "uvicorn", "api.main:app", "--reload", "--port", "8000", *args)
+
+
 def test(*args):
     py("-m", "pytest", "-q", *args)
 
@@ -75,7 +79,7 @@ TARGETS = {
     "etl-incremental": etl_incremental,
     "train": not_yet(5),
     "forecast": not_yet(5),
-    "api": not_yet(3),
+    "api": api,
     "web": not_yet(4),
     "demo": not_yet(6),
 }

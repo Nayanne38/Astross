@@ -237,6 +237,13 @@ def monthly_stats(regional: pd.DataFrame) -> pd.DataFrame:
     m["is_partial"] = m.obs_days < m.days_in_month
     # Compare months by mean harmonized FCD per observed day, so partial months are comparable.
     m["daily_mean"] = m.harmonized_total / m.obs_days
+    return add_anomalies(m)
+
+
+def add_anomalies(m: pd.DataFrame) -> pd.DataFrame:
+    """percentile & z-score of each month's daily_mean vs the same calendar month in the OTHER
+    complete (non-partial) years. Needs columns year, month, daily_mean, is_partial."""
+    m = m.copy()
     pct, z = [], []
     for _, row in m.iterrows():
         ref = m[(m.month == row.month) & (m.year != row.year) & ~m.is_partial].daily_mean
