@@ -9,7 +9,7 @@ paths:
 extract:
   # Verified against FIRMS docs in Phase 1 (see docs/DATA_DICTIONARY.md).
   history_start: "2003-01-01"   # first full year with both Terra and Aqua
-  window_days: 10               # chunk size per API call (area API max per request)
+  window_days: 5                # area API DAY_RANGE: 1-5 days per request (verified)
   max_retries: 5
   backoff_seconds: 2
   nrt_sources: [MODIS_NRT, VIIRS_NOAA20_NRT, VIIRS_NOAA21_NRT]   # NOT VIIRS_SNPP_NRT (stopped 2026-11-02)
@@ -23,9 +23,14 @@ transform:
 
 harmonization:
   method: quantile_mapping        # quantile_mapping | linear
-  overlap_start: "2012-01-20"     # first VIIRS SNPP data
-  n_quantiles: 50
-  holdout_years: [2016, 2020, 2024]
+  # VIIRS reference = ONE satellite per day, first available in this order. Using the union of
+  # SNPP+NOAA-20 inflates fire-cell-days ~1.5x from 2018 (constellation effect, see METHODOLOGY).
+  # NOAA-20/SNPP fire-cell-day ratio measured on Matopiba 2018-2025: 0.98-1.07.
+  viirs_reference_priority: [SNPP, NOAA20, NOAA21]
+  # Fit calibration only on years with stable MODIS orbits. Aqua's daytime overpass drifted from
+  # ~16:45 to ~18:45 UTC (2022->2026) and Terra's from ~13:35 to ~11:47 UTC (measured on FIRMS
+  # data), changing MODIS sensitivity; pre-2012 MODIS (what we harmonize) had nominal orbits.
+  calibration_years: [2012, 2023]
 
 ml:
   horizons_days: [7]

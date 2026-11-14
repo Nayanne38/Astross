@@ -53,6 +53,11 @@ def sample(*_):
     py("scripts/make_sample.py")
 
 
+def etl(*args):
+    """python tasks.py etl [--mode sample|full] [--region KEY]"""
+    py("-m", "etl.pipelines.run", *(args or ("--mode", "full")))
+
+
 def test(*args):
     py("-m", "pytest", "-q", *args)
 
@@ -62,7 +67,7 @@ TARGETS = {
     "db-up": db_up,
     "sample": sample,
     "test": test,
-    "etl": not_yet(1),
+    "etl": etl,
     "etl-incremental": not_yet(2),
     "train": not_yet(5),
     "forecast": not_yet(5),
