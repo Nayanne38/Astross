@@ -91,7 +91,8 @@ def check_processed(od, mode: str, today: date | None = None) -> dict:
 def check_database(region: str, expected: dict[str, int]) -> dict:
     """After load: table row counts in the DB must match what was written."""
     res, fails = {}, []
-    counts = db.table_counts(region, ["daily_cell_counts", "regional_daily", "monthly_region_stats",
+    counts = db.table_counts(region, ["daily_cell_counts", "monthly_cell_counts", "regional_daily",
+                                      "monthly_region_stats",
                                       "calibration_metrics", "raw_hotspots"])
     for t, n in counts.items():
         res[f"db_rows_{t}"] = n

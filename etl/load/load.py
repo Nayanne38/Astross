@@ -22,6 +22,16 @@ def _cells_for_db(cells: pd.DataFrame, region: str) -> pd.DataFrame:
     return c
 
 
+def monthly_cells(cells: pd.DataFrame) -> pd.DataFrame:
+    """daily cell rows -> per cell x month aggregates."""
+    c = cells.assign(year=cells.date.dt.year.astype("int16"), month=cells.date.dt.month.astype("int16"))
+    return (c.groupby(["region", "year", "month", "h3_cell"], observed=True)
+            .agg(modis_cell_days=("modis_fire", "sum"), viirs_cell_days=("viirs_fire", "sum"),
+                 modis_count=("modis_count", "sum"), viirs_count=("viirs_count", "sum"),
+                 harmonized_total=("harmonized_count", "sum"), frp_sum=("frp_sum", "sum"))
+            .reset_index())
+
+
 def _detections_for_db(det: pd.DataFrame, region: str) -> pd.DataFrame:
     keep = settings()["load"]["raw_hotspots_keep_days"]
     cutoff = det["date"].max() - pd.Timedelta(days=keep - 1)
@@ -63,9 +73,28 @@ def load_processed(od, region: str, cells_window: tuple | None = None) -> dict[s
     counts["monthly_region_stats"] = db.replace_where("monthly_region_stats", monthly, region=region)
     if cells_window is None:
         counts["calibration_metrics"] = db.replace_where("calibration_metrics", metrics, region=region)
+    # monthly per-cell history: months touched by this load are fully replaced
+    if cells_window is None:
+        mc = monthly_cells(cells)
+        counts["monthly_cell_counts"] = db.replace_where("monthly_cell_counts", mc, region=region)
+    else:
+        all_cells = _cells_for_db(pd.read_parquet(od / "daily_cell_counts.parquet"), region)
+        m_lo = lo.to_period("M").to_timestamp()
+        mc = monthly_cells(all_cells[(all_cells.date >= m_lo) & (all_cells.date <= hi)])
+        n = 0
+        for (y, mo), g in mc.groupby(["year", "month"]):
+            n += db.replace_where("monthly_cell_counts", g, region=region, year=int(y), month=int(mo))
+        counts["monthly_cell_counts"] = n
+
+    keep_cells = settings()["load"].get("daily_cells_keep_days")
+    if keep_cells:
+        cells = cells[cells.date >= hi - pd.Timedelta(days=keep_cells - 1)]
+        lo_cells = max(lo, hi - pd.Timedelta(days=keep_cells - 1))
+    else:
+        lo_cells = lo
     log.info("load: daily_cell_counts %s rows (this can take a few minutes remotely)", f"{len(cells):,}")
     counts["daily_cell_counts"] = db.replace_where("daily_cell_counts", cells, region=region,
-                                                   date=(lo.date(), hi.date()))
+                                                   date=(lo_cells.date(), hi.date()))
     raw = _detections_for_db(det, region)
     counts["raw_hotspots"] = db.replace_where("raw_hotspots", raw, region=region,
                                               date=(raw.date.min().date(), hi.date())) if len(raw) else 0
@@ -74,9 +103,13 @@ def load_processed(od, region: str, cells_window: tuple | None = None) -> dict[s
     cutoff = (hi - pd.Timedelta(days=keep - 1)).date()
     from sqlalchemy import delete
     from etl.load.schema import raw_hotspots
+    from etl.load.schema import daily_cell_counts as dcc
     with db.engine().begin() as conn:
         n_old = conn.execute(delete(raw_hotspots).where(raw_hotspots.c.region == region,
                                                         raw_hotspots.c.date < cutoff)).rowcount
+        if keep_cells:
+            conn.execute(delete(dcc).where(dcc.c.region == region,
+                                           dcc.c.date < (hi - pd.Timedelta(days=keep_cells - 1)).date()))
     log.info("load done: %s (retention removed %s old raw rows)", counts, n_old)
     return counts
 

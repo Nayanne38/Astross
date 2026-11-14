@@ -45,6 +45,22 @@ daily_cell_counts = Table(
     Column("source_mix", String(5), nullable=False),
 )
 
+# Full-history per-cell aggregate (what the historical density map needs). Much smaller than
+# daily_cell_counts, which the DB keeps only for the recent window (load.daily_cells_keep_days).
+monthly_cell_counts = Table(
+    "monthly_cell_counts", metadata,
+    Column("region", String(64), primary_key=True),
+    Column("year", SmallInteger, primary_key=True),
+    Column("month", SmallInteger, primary_key=True),
+    Column("h3_cell", String(16), primary_key=True),
+    Column("modis_cell_days", SmallInteger, nullable=False),
+    Column("viirs_cell_days", SmallInteger, nullable=False),
+    Column("modis_count", Integer, nullable=False),
+    Column("viirs_count", Integer, nullable=False),
+    Column("harmonized_total", REAL, nullable=False),
+    Column("frp_sum", REAL),
+)
+
 regional_daily = Table(
     "regional_daily", metadata,
     Column("region", String(64), primary_key=True),

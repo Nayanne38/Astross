@@ -35,6 +35,21 @@ CREATE TABLE IF NOT EXISTS daily_cell_counts (
     PRIMARY KEY (region, date, h3_cell)
 );
 
+-- Full history per cell x month (the DB keeps daily_cell_counts only for load.daily_cells_keep_days)
+CREATE TABLE IF NOT EXISTS monthly_cell_counts (
+    region           VARCHAR(64) NOT NULL,
+    year             SMALLINT NOT NULL,
+    month            SMALLINT NOT NULL,
+    h3_cell          VARCHAR(16) NOT NULL,
+    modis_cell_days  SMALLINT NOT NULL,
+    viirs_cell_days  SMALLINT NOT NULL,
+    modis_count      INTEGER NOT NULL,
+    viirs_count      INTEGER NOT NULL,
+    harmonized_total REAL NOT NULL,
+    frp_sum          REAL,
+    PRIMARY KEY (region, year, month, h3_cell)
+);
+
 CREATE TABLE IF NOT EXISTS regional_daily (
     region            VARCHAR(64) NOT NULL,
     date              DATE NOT NULL,
@@ -104,3 +119,11 @@ CREATE TABLE IF NOT EXISTS etl_runs (
     row_counts  JSON,
     message     TEXT
 );
+
+-- Supabase: the public schema is exposed via the REST API (anon key). RLS with no policies blocks
+-- that path; the ETL and FastAPI connect as the owner and are not affected.
+DO $$ DECLARE t text; BEGIN
+  FOREACH t IN ARRAY ARRAY['raw_hotspots','daily_cell_counts','monthly_cell_counts','regional_daily',
+    'monthly_region_stats','calibration_metrics','risk_forecasts','etl_runs'] LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+  END LOOP; END $$;

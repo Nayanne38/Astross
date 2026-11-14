@@ -39,9 +39,11 @@ ml:
   # test = everything after validate_until (most recent full fire season)
 
 load:
-  # raw_hotspots in the database keeps only the most recent N days (Supabase free tier = 500 MB;
-  # the full detection history stays in data/processed/<region>/detections.parquet).
-  raw_hotspots_keep_days: 120
+  # Sized for Supabase's free tier (500 MB). Full history always stays in data/processed/<region>/.
+  # Measured on Supabase: daily_cell_counts ~153 B/row incl. index -> all 3.5 M Matopiba rows
+  # would need ~530 MB, so the DB keeps the recent window daily + full history monthly per cell.
+  raw_hotspots_keep_days: 60
+  daily_cells_keep_days: 365      # null = keep every day (paid plan / local Postgres / SQLite)
   incremental_days: 7
 
 quality_checks:

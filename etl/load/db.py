@@ -44,6 +44,12 @@ def create_schema() -> None:
     if eng.dialect.name == "sqlite":
         with eng.begin() as c:
             c.execute(text("PRAGMA journal_mode=WAL"))
+    else:
+        # Supabase exposes the public schema through its REST API with the anon key. Enabling RLS
+        # with no policies denies that path; the ETL/API connect as the table owner and bypass RLS.
+        with eng.begin() as c:
+            for t in TABLES:
+                c.execute(text(f"ALTER TABLE {t} ENABLE ROW LEVEL SECURITY"))
 
 
 def _date_cols(table: str) -> set[str]:
