@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/*
+!data/sample/
+data/sample/*.tmp
+node_modules/
+web/.next/
+web/out/
+*.db
+*.duckdb
+hop/metadata/**/local-*
+.DS_Store
