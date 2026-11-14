@@ -4,22 +4,28 @@
   python -m etl.pipelines.run --mode full --region matopiba
   python -m etl.pipelines.run --steps extract          # only one step
 
-Steps: extract -> transform (normalize, filter, H3, dedup, harmonize, monthly stats, plot).
-Outputs: data/processed/<region>/*.parquet + calibration_metrics.csv, docs/img/*.png
+Steps: extract -> transform (normalize, filter, H3, dedup, harmonize, monthly stats, plot)
+       -> dq (data-quality checks, fail loudly) -> load (idempotent upserts) + etl_runs log.
+  python -m etl.pipelines.run --mode incremental       # last N days of NRT, merged + loaded
+Outputs: data/processed/<region>/*.parquet + calibration_metrics.csv, docs/img/*.png, database
 """
 from __future__ import annotations
 
 import argparse
 import json
+import pickle
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from etl.config import get_region, path, settings
 from etl.extract.run import iter_extract
-from etl.transform import aggregate, harmonize, normalize, quality, report
+from etl.load import checks, load
+from etl.transform import aggregate, harmonize, incremental, normalize, quality, report
 
 log = logging.getLogger("etl")
 
@@ -42,7 +48,8 @@ def run_transform(raw, region, synthetic: bool) -> dict:
     t0 = time.time()
     det = normalize.normalize_all(raw)
     log.info("normalized %s detections (%.0fs)", f"{len(det):,}", time.time() - t0)
-    det, qrep = quality.apply_filters(det, quality.static_mask(det))
+    smask = quality.static_mask(det)
+    det, qrep = quality.apply_filters(det, smask)
     det = aggregate.add_h3(det, cfg["transform"]["h3_resolution"])
     log.info("H3 res %d assigned (%.0fs)", cfg["transform"]["h3_resolution"], time.time() - t0)
     daily_hotspots = det.groupby("date").size().rename("hotspots_total")
@@ -79,6 +86,9 @@ def run_transform(raw, region, synthetic: bool) -> dict:
     hz.regional.to_parquet(od / "regional_daily.parquet", index=False)
     monthly.to_parquet(od / "monthly_region_stats.parquet", index=False)
     hz.metrics.to_csv(od / "calibration_metrics.csv", index=False)
+    with open(od / "calibration_models.pkl", "wb") as f:   # reused by incremental runs
+        pickle.dump(hz.models, f)
+    np.save(od / "static_mask.npy", smask)
     meta = {"region": region.key, "synthetic": synthetic, "quality": qrep,
             "coverage": {f"{f}/{p}": [str(a), str(b)] for (f, p), (a, b) in spans.iterrows()},
             "method": cfg["harmonization"]["method"],
@@ -92,25 +102,63 @@ def run_transform(raw, region, synthetic: bool) -> dict:
     return meta
 
 
+STEPS = ["extract", "transform", "dq", "load"]
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--mode", choices=["sample", "full", "incremental"], default="full")
     ap.add_argument("--region", default=None)
-    ap.add_argument("--steps", default="extract,transform")
+    ap.add_argument("--steps", default=",".join(STEPS),
+                    help="comma list of extract,transform,dq,load (Hop calls them one by one)")
+    ap.add_argument("--days", type=int, default=None, help="incremental window (default from settings)")
     a = ap.parse_args(argv)
     setup_logging()
     region = get_region(a.region or ("sample_tocantins" if a.mode == "sample" else None))
-    steps = a.steps.split(",")
-    log.info("ETL start region=%s mode=%s steps=%s", region.key, a.mode, steps)
-    raw = iter_extract(region, a.mode)
-    if "transform" not in steps:
-        for _ in raw:   # extract only: fill the raw cache
-            pass
-    else:
-        meta = run_transform(raw, region, synthetic=a.mode == "sample")
-        q = pd.read_csv(out_dir(region.key) / "calibration_metrics.csv")
-        print(q[q.scope.isin(["loyo_daily", "loyo_monthly"])].to_string(index=False))
-        print(json.dumps(meta["quality"]))
+    steps = [s for s in a.steps.split(",") if s]
+    bad = set(steps) - set(STEPS)
+    if bad:
+        raise SystemExit(f"unknown steps {sorted(bad)}; valid: {STEPS}")
+    days = a.days or settings()["load"]["incremental_days"]
+    od = out_dir(region.key)
+    run_id = f"{region.key}-{a.mode}-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}"
+    started = datetime.now(timezone.utc)
+    log.info("ETL %s start region=%s mode=%s steps=%s", run_id, region.key, a.mode, steps)
+    if "load" in steps:
+        load.log_run(run_id, region.key, a.mode, "running", started)
+    info: dict = {}
+    window = None
+    try:
+        if "extract" in steps and "transform" not in steps:
+            for _ in iter_extract(region, a.mode, days=days):   # fill the raw cache only
+                pass
+        if "transform" in steps:
+            raw = iter_extract(region, a.mode, days=days)
+            if a.mode == "incremental":
+                lo, hi, info["transform"] = incremental.run_incremental(raw, od)
+                window = (lo, hi)
+            else:
+                info["transform"] = run_transform(raw, region, synthetic=a.mode == "sample")
+            q = pd.read_csv(od / "calibration_metrics.csv")
+            print(q[q.scope.isin(["loyo_daily", "loyo_monthly"])].to_string(index=False))
+        if "dq" in steps:
+            info["dq_processed"] = checks.check_processed(od, a.mode)
+        if "load" in steps:
+            if window is None and a.mode == "incremental":
+                det = pd.read_parquet(od / "detections.parquet", columns=["date"])
+                hi = det.date.max()
+                window = (hi - pd.Timedelta(days=days - 1), hi)
+            written = load.load_processed(od, region.key, cells_window=window)
+            info["load"] = written
+            info["dq_database"] = checks.check_database(region.key, written)
+    except BaseException as e:
+        log.error("ETL %s FAILED: %s", run_id, e)
+        if "load" in steps:
+            load.log_run(run_id, region.key, a.mode, "failed", started, info, f"{type(e).__name__}: {e}")
+        raise
+    if "load" in steps:
+        load.log_run(run_id, region.key, a.mode, "success", started, info)
+    log.info("ETL %s finished OK in %.0fs", run_id, (datetime.now(timezone.utc) - started).total_seconds())
 
 
 if __name__ == "__main__":

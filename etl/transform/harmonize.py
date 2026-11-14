@@ -136,6 +136,7 @@ class HarmonizationResult:
     cells: pd.DataFrame             # daily_cell_counts + harmonized_count
     metrics: pd.DataFrame           # validation table
     unplaced_fraction: float        # share of calibrated MODIS-era FCD that could not be put on cells
+    models: dict = field(default_factory=dict)  # calendar month -> fitted mapper
 
 
 def coverage_days(spans) -> pd.DatetimeIndex:
@@ -185,25 +186,37 @@ def harmonize(regional: pd.DataFrame, cells: pd.DataFrame, modis_days, viirs_day
     if len(outside):
         val = pd.concat([val, out_of_window_metrics(
             {m: fit_monthly(overlap, m) for m in MAPPERS}, outside)], ignore_index=True)
-    r["modis_calibrated"] = np.where(r.modis_obs, predict_monthly(models, r), np.nan)
-    r["harmonized"] = np.where(r.viirs_obs, r.viirs_fcd, r.modis_calibrated)
-    r["harmonized_source"] = np.where(r.viirs_obs, "VIIRS", np.where(r.modis_obs, "MODIS_cal", "none"))
+    r = apply_regional(r, models)
 
-    # cell-level distribution of the calibrated MODIS-era totals
-    w = np.where(r.modis_fcd > 0, r.modis_calibrated / r.modis_fcd.where(r.modis_fcd > 0, 1), 0.0)
-    wmap = pd.Series(w, index=r["date"])
-    vobs = pd.Series(r.viirs_obs.to_numpy(), index=r["date"])
-    c = cells.copy()
-    in_viirs = c["date"].map(vobs).fillna(False).astype(bool).to_numpy()
-    c["harmonized_count"] = np.where(in_viirs, c.viirs_fire.astype(float),
-                                     c.modis_fire.astype(float) * c["date"].map(wmap).fillna(0).to_numpy())
+    c = cell_harmonized(cells, r)
     modis_era = r[r.modis_obs & ~r.viirs_obs]
     total = modis_era.modis_calibrated.sum()
     unplaced = modis_era.loc[modis_era.modis_fcd == 0, "modis_calibrated"].sum()
     frac = float(unplaced / total) if total > 0 else 0.0
     log.info("harmonize: overlap=%d days, method=%s, unplaced MODIS-era mass=%.1f%%",
              len(overlap), method, 100 * frac)
-    return HarmonizationResult(r, c, val, frac)
+    return HarmonizationResult(r, c, val, frac, models)
+
+
+def apply_regional(r: pd.DataFrame, models: dict) -> pd.DataFrame:
+    """Given modis_obs/viirs_obs/modis_fcd/viirs_fcd, add modis_calibrated, harmonized, source."""
+    r = r.copy()
+    r["modis_calibrated"] = np.where(r.modis_obs, predict_monthly(models, r), np.nan)
+    r["harmonized"] = np.where(r.viirs_obs, r.viirs_fcd, r.modis_calibrated)
+    r["harmonized_source"] = np.where(r.viirs_obs, "VIIRS", np.where(r.modis_obs, "MODIS_cal", "none"))
+    return r
+
+
+def cell_harmonized(cells: pd.DataFrame, r: pd.DataFrame) -> pd.DataFrame:
+    """Cell-level harmonized_count from the regional series (see module docstring)."""
+    w = np.where(r.modis_fcd > 0, r.modis_calibrated / r.modis_fcd.where(r.modis_fcd > 0, 1), 0.0)
+    wmap = pd.Series(np.nan_to_num(w), index=r["date"])
+    vobs = pd.Series(r.viirs_obs.to_numpy(), index=r["date"])
+    c = cells.copy()
+    in_viirs = c["date"].map(vobs).fillna(False).astype(bool).to_numpy()
+    c["harmonized_count"] = np.where(in_viirs, c.viirs_fire.astype(float),
+                                     c.modis_fire.astype(float) * c["date"].map(wmap).fillna(0).to_numpy())
+    return c
 
 
 def monthly_stats(regional: pd.DataFrame) -> pd.DataFrame:
@@ -216,6 +229,7 @@ def monthly_stats(regional: pd.DataFrame) -> pd.DataFrame:
         r["hotspots_total"] = r["modis_hotspots"] + r["viirs_hotspots"]
     m = r.groupby(["year", "month"]).agg(
         modis_cell_days=("modis_fcd", "sum"), viirs_cell_days=("viirs_fcd", "sum"),
+        modis_calibrated_total=("modis_calibrated", "sum"),
         harmonized_total=("harmonized", "sum"), hotspot_count=("hotspots_total", "sum"),
         obs_days=("_obs", "sum"), days=("date", "size")).reset_index()
     m = m[m.obs_days > 0].reset_index(drop=True)          # months with no observation are dropped

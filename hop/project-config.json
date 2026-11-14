@@ -1,0 +1,17 @@
+{
+  "metadataBaseFolder" : "${PROJECT_HOME}/metadata",
+  "unitTestsBasePath" : "${PROJECT_HOME}",
+  "dataSetsCsvFolder" : "${PROJECT_HOME}/datasets",
+  "enforcingExecutionInHome" : true,
+  "config" : {
+    "variables" : [ {
+      "name" : "PYTHON",
+      "value" : ".venv/Scripts/python",
+      "description" : "Python interpreter relative to the repo root. Linux/macOS: .venv/bin/python"
+    }, {
+      "name" : "REGION",
+      "value" : "matopiba",
+      "description" : "Default region key (config/regions.yaml)"
+    } ]
+  }
+}

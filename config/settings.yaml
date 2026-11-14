@@ -37,3 +37,15 @@ ml:
   train_until: "2019-12-31"
   validate_until: "2022-12-31"
   # test = everything after validate_until (most recent full fire season)
+
+load:
+  # raw_hotspots in the database keeps only the most recent N days (Supabase free tier = 500 MB;
+  # the full detection history stays in data/processed/<region>/detections.parquet).
+  raw_hotspots_keep_days: 120
+  incremental_days: 7
+
+quality_checks:
+  max_null_rate: {lat: 0.0, lon: 0.0, date: 0.0, h3_cell: 0.0, frp: 0.05}
+  min_monthly_r2: 0.8            # calibration LOYO monthly R2 below this fails the run
+  max_nrt_lag_days: 3            # latest detection must be at most this old (full/incremental)
+  max_observation_gap_days: 10   # longest run of unobserved days inside the VIIRS era

@@ -58,6 +58,10 @@ def etl(*args):
     py("-m", "etl.pipelines.run", *(args or ("--mode", "full")))
 
 
+def etl_incremental(*args):
+    py("-m", "etl.pipelines.run", "--mode", "incremental", *args)
+
+
 def test(*args):
     py("-m", "pytest", "-q", *args)
 
@@ -68,7 +72,7 @@ TARGETS = {
     "sample": sample,
     "test": test,
     "etl": etl,
-    "etl-incremental": not_yet(2),
+    "etl-incremental": etl_incremental,
     "train": not_yet(5),
     "forecast": not_yet(5),
     "api": not_yet(3),

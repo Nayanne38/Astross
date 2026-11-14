@@ -65,10 +65,19 @@ def map_key() -> str | None:
 
 def database_url() -> str:
     backend = os.getenv("DB_BACKEND", "sqlite").lower()
-    if backend == "postgres":
-        return os.environ["DATABASE_URL"]
+    if backend in ("postgres", "supabase"):
+        url = os.getenv("DATABASE_URL", "")
+        if not url:
+            raise SystemExit("DB_BACKEND=%s but DATABASE_URL is empty (see .env.example)" % backend)
+        # Accept the plain URI Supabase shows ("postgresql://...") and use the psycopg3 driver.
+        for prefix in ("postgresql://", "postgres://"):
+            if url.startswith(prefix):
+                url = "postgresql+psycopg://" + url[len(prefix):]
+        if backend == "supabase" and "sslmode=" not in url:
+            url += ("&" if "?" in url else "?") + "sslmode=require"
+        return url
     if backend == "sqlite":
         p = ROOT / os.getenv("SQLITE_PATH", "data/queimadas.db")
         p.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{p.as_posix()}"
-    raise SystemExit(f"DB_BACKEND must be 'sqlite' or 'postgres', got '{backend}'")
+    raise SystemExit(f"DB_BACKEND must be 'sqlite', 'postgres' or 'supabase', got '{backend}'")
