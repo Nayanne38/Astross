@@ -431,6 +431,18 @@ LIMITATIONS_EN = [
 
 
 _LIVE_CACHE: dict = {}
+
+
+def _fires(bbox, days: int):
+    """Worldwide detections: the worker's rolling local store when fresh, else NASA FIRMS directly."""
+    from alerts import firms_live
+    from etl import live_store
+    try:
+        if live_store.covers(max(days, 2)) and live_store.is_fresh():
+            return live_store.fires(days, tuple(bbox))
+    except Exception:
+        pass
+    return firms_live.fetch(tuple(bbox), days=days)
 _LIVE_TTL_S = 600  # NRT updates every few hours; 10 min keeps us far below the FIRMS transaction limits
 
 
@@ -453,7 +465,7 @@ def live(region: str = Query(..., description="region key (config/regions.yaml)"
         fires = hit[1]
     else:
         try:
-            fires = firms_live.fetch(tuple(rg.bbox), days=days)
+            fires = _fires(tuple(rg.bbox), days)
         except RuntimeError as e:
             raise HTTPException(503, str(e))
         _LIVE_CACHE[key] = (_t.time(), fires)
@@ -485,7 +497,7 @@ def world(days: int = Query(1, ge=1, le=3), limit: int = Query(25000, ge=1, le=6
         fires = hit[1]
     else:
         try:
-            fires = firms_live.fetch((-180.0, -90.0, 180.0, 90.0), days=days)
+            fires = _fires((-180.0, -90.0, 180.0, 90.0), days)
         except RuntimeError as e:
             raise HTTPException(503, str(e))
         _LIVE_CACHE[key] = (_t.time(), fires)
@@ -570,7 +582,7 @@ def forecast_live(region: str = Query(...), limit: int = Query(6000, ge=1, le=20
         fires = hit[1]
     else:
         try:
-            fires = firms_live.fetch(tuple(rg.bbox), days=5)
+            fires = _fires(tuple(rg.bbox), 5)
         except RuntimeError as e:
             raise HTTPException(503, str(e))
         _LIVE_CACHE[key] = (_t.time(), fires)
@@ -704,7 +716,7 @@ def export_csv(a: Area = Depends(), kind: str = Query("history", pattern="^(hist
 _INSIGHTS: dict = {}
 
 
-def insight_context(region: str, horizon: int, top_n: int = 15) -> dict:
+def insight_context(region: str, horizon: int, top_n: int = 15, lang: str = "en") -> dict:
     """Everything Claude may cite. Probabilities come only from risk_forecasts (the model)."""
     f = q.forecast(region, horizon)
     top = f.nlargest(top_n, "probability")
@@ -731,7 +743,7 @@ def insight_context(region: str, horizon: int, top_n: int = 15) -> dict:
                 for c, p, k in zip(top.h3_cell, top.probability, top.risk_class)],
         },
         "contexto_historico": {
-            "mes_atual": anomaly_sentence(last, rg.name).sentence,
+            "mes_atual": anomaly_sentence(last, rg.name, lang).sentence,
             "media_mesmo_mes_outros_anos_celulas_dia": round(float(same.harmonized_total.mean()), 1) if len(same) else None,
             "celulas_dia_com_fogo_ultimos_7_dias": round(float(r7), 1),
             "celulas_dia_com_fogo_7_dias_anteriores": round(float(r_prev), 1),
@@ -743,7 +755,8 @@ def insight_context(region: str, horizon: int, top_n: int = 15) -> dict:
 
 @app.get("/forecast/insight", response_model=ForecastInsight)
 def forecast_insight(region: Optional[str] = Query(None), horizon: int = Query(7, ge=1, le=30),
-                     audience: str = Query("geral", pattern="^(geral|professor)$")):
+                     audience: str = Query("geral", pattern="^(geral|professor)$"),
+                     lang: str = Query("en", pattern="^(en|pt)$")):
     """Claude's pt-BR reading of the model forecast (cached per forecast date and audience)."""
     try:
         key = get_region(region).key
@@ -752,14 +765,16 @@ def forecast_insight(region: Optional[str] = Query(None), horizon: int = Query(7
     f = q.forecast(key, horizon)
     if f.empty:
         raise HTTPException(503, "Previsão ainda não disponível. Rode: python tasks.py train && python tasks.py forecast")
-    ck = (key, horizon, audience, str(f.forecast_date.iloc[0]))
+    ck = (key, horizon, audience, lang, str(f.forecast_date.iloc[0]))
     if ck not in _INSIGHTS:
         try:
-            _INSIGHTS[ck] = llm.generate_insight(insight_context(key, horizon), audience)
+            _INSIGHTS[ck] = llm.generate_insight(insight_context(key, horizon, lang=lang), audience, lang)
         except llm.InsightUnavailable as e:
             raise HTTPException(503, str(e))
     ins = _INSIGHTS[ck]
     return ForecastInsight(region=key, forecast_date=f.forecast_date.iloc[0], horizon_days=horizon,
                            audience=audience, model=llm.MODEL, insight=ins.model_dump(),
-                           disclaimer=FORECAST_DISCLAIMER + " Texto gerado por IA (Claude) a partir das "
-                           "probabilidades do modelo; pode conter erros de interpretação.")
+                           disclaimer=(FORECAST_DISCLAIMER + " Texto gerado por IA (Claude) a partir das "
+                                       "probabilidades do modelo; pode conter erros de interpretação.") if lang == "pt" else
+                           "Probability is not certainty. Text generated by AI (Claude) from the model's probabilities; "
+                           "it may contain interpretation errors.")

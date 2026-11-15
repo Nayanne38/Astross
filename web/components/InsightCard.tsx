@@ -24,7 +24,7 @@ export default function InsightCard({ region, audience = "geral" }: { region?: s
       <p className="kicker">AI analysis · Claude</p>
       <h3 className="h2">{audience === "professor" ? "Forecast explained for the classroom" : "What is the forecast saying?"}</h3>
       <p className="text-sm text-muted">
-        Claude reads the probabilities computed by the statistical model, the evaluation metrics and the region's history, and writes an
+        Claude reads the probabilities computed by the statistical model, the evaluation metrics and the region&apos;s history, and writes an
         interpretation in English. The AI does not invent numbers: it only interprets the ones the model produced.
       </p>
       <div><button className="btn" onClick={run} disabled={loading}>{loading ? "Generating analysis…" : "✨ Generate analysis"}</button></div>

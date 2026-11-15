@@ -95,7 +95,7 @@ function Start({ onPick, radius }: { onPick: (k: RecipientKind) => void; radius:
         🔔 I want to receive fire alerts
       </button>
       <button onClick={() => onPick("bombeiro")} className="btn-ghost mt-3 w-full justify-center py-3">
-        🚒 I'm a firefighter — alerts for my city
+        🚒 I&apos;m a firefighter — alerts for my city
       </button>
       
     </div>

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { useApp } from "./app-state";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { t, prefs, setPrefs, offline, meta, filters, setFilters } = useApp();
+  const { t, prefs, setPrefs, offline, meta, filters, setFilters, lang, setLang } = useApp();
   const c = t.copy;
   const path = usePathname();
   const [menu, setMenu] = useState(false);
@@ -59,6 +59,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {a11y && (
           <div className="pop-in absolute right-3 top-full z-50 mt-1 w-72 rounded-xl border border-line bg-panel p-4 text-ink shadow-xl" role="dialog" aria-label={c.a11y.title}>
             <h2 className="mb-3 font-display font-semibold">{c.a11y.title}</h2>
+            <label className="mb-3 flex items-center justify-between text-sm">
+              Language
+              <select className="rounded border border-line bg-panel px-2 py-1" value={lang} onChange={(e) => { setLang(e.target.value as "en" | "pt"); window.location.reload(); }}>
+                <option value="en">English</option>
+                <option value="pt">Português</option>
+              </select>
+            </label>
             <div className="mb-3 flex items-center justify-between text-sm">
               {c.a11y.textSize}
               <span className="flex gap-1">
@@ -83,7 +90,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="text-ink-3">Region</span>
               <select className="input w-auto" value={filters.region} onChange={(e) => setFilters({ region: e.target.value, bbox: null })}>
                 <option value="">Change region…</option>
-                {(meta?.regions ?? []).filter((r) => !r.key.startsWith("sample") && true).map((r) => <option key={r.key} value={r.key}>{(r.name_en || r.name) + (r.data_start || path.startsWith("/previsao") ? "" : ` — series processing${r.progress ? " " + Math.round(r.progress * 100) + "%" : ""}`)}</option>)}
+                {(meta?.regions ?? []).filter((r) => !r.key.startsWith("sample") && (path.startsWith("/previsao") || !!r.data_start)).map((r) => <option key={r.key} value={r.key}>{(r.name_en || r.name)}</option>)}
               </select>
             </label>
           )}

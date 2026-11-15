@@ -57,6 +57,23 @@ climatologia) e as limitações informadas. Nunca diga "alta" se o modelo não s
 - Foco de calor detectado por satélite não é o mesmo que área queimada ou incêndio confirmado.
 - Escreva em português do Brasil, com frases claras e objetivas."""
 
+SYSTEM_EN = """You are a wildfire-risk analyst for the FireTrack project (NASA Space Apps), which harmonizes MODIS and VIIRS hotspots (NASA FIRMS) into H3 hexagonal cells.
+
+You receive, as JSON, the output of a statistical model (LightGBM) that estimates, for each cell, the probability of at least one fire day in the next N days, plus the model's evaluation metrics against baselines and the region's historical context. The JSON keys are in Portuguese; ignore that and answer in English.
+
+Mandatory rules:
+- You do NOT make the forecast: you interpret the model's forecast. Never invent numbers, probabilities, dates, municipalities or counts that are not in the JSON. When citing a number, copy it from the JSON.
+- To name areas, use only broad, safe geographic references derived from lat/lon (country, state or province, region, large nearby cities). If unsure, describe by position (e.g. "far south of the region, ~-11.5 / -46.0").
+- Confidence must reflect the model metrics (PR-AUC and ROC-AUC against persistence and climatology) and the stated limitations. Never say "high" if the model does not beat the baselines.
+- A satellite heat hotspot is not the same as a burned area or a confirmed fire.
+- Write in clear, objective English. Every text field of your answer must be in English."""
+
+AUDIENCE_EN = {
+    "geral": "Audience: managers, firefighters and citizens. Practical prevention and monitoring recommendations.",
+    "professor": ("Audience: primary and secondary school teachers. Use didactic language, explain technical "
+                  "terms briefly and turn the recommendations into classroom activity ideas and discussion questions."),
+}
+
 AUDIENCE = {
     "geral": "Público: gestores, brigadistas e cidadãos. Recomendações práticas de prevenção e monitoramento.",
     "professor": ("Público: professores do ensino fundamental e médio. Use linguagem didática, explique "
@@ -71,15 +88,16 @@ def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic()
 
 
-def generate_insight(context: dict, audience: str = "geral") -> Insight:
+def generate_insight(context: dict, audience: str = "geral", lang: str = "en") -> Insight:
     client = _client()
-    user = (f"{AUDIENCE.get(audience, AUDIENCE['geral'])}\n\n"
+    aud = AUDIENCE if lang == "pt" else AUDIENCE_EN
+    user = (f"{aud.get(audience, aud['geral'])}\n\n"
             "Dados (JSON):\n" + json.dumps(context, ensure_ascii=False, default=str))
     try:
         resp = client.beta.messages.parse(
             model=MODEL,
             max_tokens=16000,
-            system=SYSTEM,
+            system=SYSTEM if lang == "pt" else SYSTEM_EN,
             messages=[{"role": "user", "content": user}],
             output_format=Insight,
             output_config={"effort": "medium"},

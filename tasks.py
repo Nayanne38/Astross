@@ -83,6 +83,11 @@ def web(*args):
     run(npm, "run", *(args or ("dev",)), cwd=ROOT / "web")
 
 
+def worker(*args):
+    """Daily FIRMS worker: refresh the rolling 30-day worldwide store and delete older days."""
+    py("-m", "etl.worker", "--loop", *args)
+
+
 def bot(*args):
     """Telegram fire-alert bot + periodic FIRMS scan (needs TELEGRAM_BOT_TOKEN)."""
     py("-m", "alerts.bot", *args)
@@ -104,6 +109,7 @@ TARGETS = {
     "api": api,
     "web": web,
     "bot": bot,
+    "worker": worker,
     "demo": not_yet(6),
 }
 

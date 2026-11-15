@@ -31,6 +31,33 @@ SOURCES = ["MODIS_SP", "VIIRS_SNPP_SP", "VIIRS_NOAA20_SP"]
 NRT = {"MODIS_NRT": "MODIS_SP", "VIIRS_NOAA20_NRT": "VIIRS_NOAA20_SP", "VIIRS_NOAA21_NRT": "VIIRS_NOAA20_SP"}
 WORKERS = 2
 
+# FIRMS country archives (public files, NO API quota): one CSV per product x year x country.
+ARCHIVE = "https://firms.modaps.eosdis.nasa.gov/data/country"
+ARCHIVE_KIND = {"MODIS_SP": "modis", "VIIRS_SNPP_SP": "viirs-snpp", "VIIRS_NOAA20_SP": "viirs-noaa20"}
+_SA = ["Brazil", "Bolivia", "Paraguay", "Argentina", "Peru", "Uruguay", "Chile", "Colombia", "Venezuela", "Ecuador", "Guyana", "Suriname"]
+COUNTRIES = {
+    "brasil_amazonia": ["Brazil", "Peru", "Bolivia", "Colombia", "Venezuela", "Ecuador", "Guyana", "Suriname"],
+    "brasil_pantanal": ["Brazil", "Bolivia", "Paraguay"],
+    "brasil_sul": ["Brazil", "Paraguay", "Argentina", "Uruguay"],
+    "brasil_nordeste": ["Brazil"],
+    "usa_west": ["United_States"],
+    "canada_boreal": ["Canada", "United_States"],
+    "mexico_central_america": ["Mexico", "Guatemala", "Belize", "Honduras", "El_Salvador", "Nicaragua", "Costa_Rica", "Panama", "United_States"],
+    "bolivia_chaco": ["Bolivia", "Paraguay", "Argentina", "Brazil", "Chile", "Peru"],
+    "mediterranean": ["Spain", "Portugal", "France", "Italy", "Greece", "Turkey", "Morocco", "Algeria", "Tunisia", "Libya", "Egypt", "Croatia",
+                      "Albania", "Slovenia", "Bosnia_and_Herzegovina", "Montenegro", "Serbia", "Bulgaria", "Cyprus", "Syria", "Lebanon",
+                      "Israel", "Switzerland"],
+    "africa_savanna": ["Angola", "Zambia", "Democratic_Republic_of_the_Congo", "Tanzania", "Mozambique", "Nigeria", "Mali", "Chad", "Sudan",
+                       "South_Sudan", "Ethiopia", "Kenya", "Uganda", "Cameroon", "Central_African_Republic", "Zimbabwe", "Malawi", "Burkina_Faso",
+                       "Ghana", "Niger", "Gabon", "Namibia", "Botswana", "Somalia", "Guinea", "Rwanda", "Burundi"],
+    "india_south_asia": ["India", "Nepal", "Bangladesh", "Pakistan", "Bhutan", "Sri_Lanka", "Afghanistan", "China", "Myanmar"],
+    "southeast_asia": ["Myanmar", "Thailand", "Lao_PDR", "Cambodia", "Vietnam", "China", "Malaysia"],
+    "indonesia": ["Indonesia", "Malaysia", "Brunei_Darussalam", "Singapore"],
+    "siberia": ["Russian_Federation", "Mongolia", "Kazakhstan", "China"],
+    "australia_east": ["Australia"],
+    "australia_north": ["Australia"],
+}
+
 
 _QUOTA = {"t": 0.0, "lock": threading.Lock()}
 
@@ -58,6 +85,47 @@ def _window(client: FirmsClient, src, region, d: date, n: int) -> pd.DataFrame:
     _budget(client)
     url = f"{BASE}/api/area/csv/{client.key}/{src}/{region.bbox_str}/{n}/{d:%Y-%m-%d}"
     return pd.read_csv(io.StringIO(client._get(url).text), dtype={"acq_time": str})
+
+
+def _archive_one(kind: str, year: int, country: str, region) -> pd.DataFrame:
+    """Download one country-year CSV in a stream and keep only the rows inside the region bbox."""
+    import httpx
+    w, s_, e, n = region.bbox
+    url = f"{ARCHIVE}/{kind}/{year}/{kind}_{year}_{country}.csv"
+    tmp = path("processed") / "_lite" / f"_dl_{kind}_{year}_{country}.csv"
+    for attempt in range(4):
+        try:
+            with httpx.stream("GET", url, timeout=httpx.Timeout(60, read=300), follow_redirects=True) as r:
+                if r.status_code == 404:
+                    return pd.DataFrame()
+                r.raise_for_status()
+                with open(tmp, "wb") as fh:
+                    for chunk in r.iter_bytes(1 << 20):
+                        fh.write(chunk)
+            break
+        except (httpx.HTTPError, OSError) as ex:
+            if attempt == 3:
+                log.warning("archive %s %s %d failed: %s", country, kind, year, type(ex).__name__)
+                tmp.unlink(missing_ok=True)
+                return pd.DataFrame()
+            time.sleep(5 * (attempt + 1))
+    parts = []
+    for ch in pd.read_csv(tmp, dtype={"acq_time": str}, chunksize=500_000):
+        parts.append(ch[(ch.longitude >= w) & (ch.longitude <= e) & (ch.latitude >= s_) & (ch.latitude <= n)])
+    tmp.unlink(missing_ok=True)
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
+def _archive(product: str, region, a: date, b: date) -> pd.DataFrame:
+    """Same rows as `_fetch` would return, from the public country archives (no FIRMS quota)."""
+    kind, year = ARCHIVE_KIND[product], a.year
+    with ThreadPoolExecutor(3) as ex:
+        parts = [p for p in ex.map(lambda c: _archive_one(kind, year, c, region), COUNTRIES[region.key]) if len(p)]
+    if not parts:
+        return pd.DataFrame()
+    df = pd.concat(parts, ignore_index=True)
+    d = pd.to_datetime(df["acq_date"])
+    return df[(d >= pd.Timestamp(a)) & (d <= pd.Timestamp(b))].reset_index(drop=True)
 
 
 def _fetch(clients, src, region, start: date, end: date) -> pd.DataFrame:
@@ -112,13 +180,16 @@ def run(region_key: str, load_db: bool = True) -> dict:
     for y in years:
         lo, hi = date(y, 1, 1), date(y, 12, 31)
         f = ck / f"{y}.parquet"
-        if f.exists() and y < today.year - 1:          # recent years are always refetched
+        if f.exists() and y < today.year:          # only the current year is always refetched
             daily.append(pd.read_parquet(f)); continue
         raw = []
         for p, (a, b) in plan.items():
             a2, b2 = max(a, lo), min(b, hi)
             if a2 <= b2:
-                raw.append((p, _fetch(clients, p, region, a2, b2)))
+                if y < today.year and p in ARCHIVE_KIND and region_key in COUNTRIES:
+                    raw.append((p, _archive(p, region, a2, b2)))        # complete years: public archives, no quota
+                else:
+                    raw.append((p, _fetch(clients, p, region, a2, b2)))
         det = normalize.normalize_all(raw)
         if det.empty:
             continue

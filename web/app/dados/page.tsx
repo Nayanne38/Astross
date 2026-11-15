@@ -98,6 +98,6 @@ function Inner() {
 
 export default function Page() {
   const { live, series, filters } = useApp();
-  if (!filters.region) return <PickRegion what="Full data" need="series" />;
+  if (!filters.region || (live && !series)) return <PickRegion what="Full data" need="series" />;
   return live && !series ? <NeedsHistory /> : <Inner />;
 }

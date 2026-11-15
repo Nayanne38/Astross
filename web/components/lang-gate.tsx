@@ -8,8 +8,9 @@ export async function LangGate({ children }: { children: React.ReactNode }) {
   const [c, h] = await Promise.all([cookies(), headers()]);
   const edgeCountry = COUNTRY_HEADERS.map((k) => h.get(k)).find(Boolean) ?? null;
   const al = h.get("accept-language");
-  void detectLang; void LANG_COOKIE;
-  const lang = "en" as const; // the whole system is English
+  void detectLang;
+  // English by default; Portuguese only if the visitor picked it in Settings (cookie).
+  const lang = c.get(LANG_COOKIE)?.value === "pt" ? ("pt" as const) : ("en" as const);
   // The visitor's own choice wins, then the edge IP country, then the browser region (local dev).
   const chosen = c.get(COUNTRY_COOKIE)?.value?.toUpperCase();
   const country = isCountry(chosen) ? chosen : (edgeCountry?.toUpperCase() ?? regionFromAcceptLanguage(al));

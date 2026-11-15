@@ -158,6 +158,6 @@ function Inner() {
 
 export default function Page() {
   const { live, series, filters } = useApp();
-  if (!filters.region) return <PickRegion what="Calendar" need="series" />;
+  if (!filters.region || (live && !series)) return <PickRegion what="Calendar" need="series" />;
   return live && !series ? <NeedsHistory /> : <Inner />;
 }

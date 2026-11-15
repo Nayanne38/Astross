@@ -136,7 +136,7 @@ def test_forecast_insight(client, monkeypatch):
     main._INSIGHTS.clear()
     seen = {}
 
-    def fake(context, audience):
+    def fake(context, audience, lang="en"):
         seen["ctx"], seen["aud"] = context, audience
         return llm.Insight(titulo="t", resumo="r", areas_prioritarias=[], fatores=[], confianca="media",
                            justificativa_confianca="j", limitacoes=[], recomendacoes=[])
@@ -204,6 +204,8 @@ def test_live_regions(client, monkeypatch):
     fake = [firms_live.Fire(-17.0, -57.0, now, "NOAA-20 (VIIRS)", 12.5, "nominal", "D"),
             firms_live.Fire(-17.01, -57.01, now, "Terra (MODIS)", 40.0, "alta", "N")]
     monkeypatch.setattr(firms_live, "fetch", lambda bbox, days=1, client=None: fake)
+    from etl import live_store
+    monkeypatch.setattr(live_store, "is_fresh", lambda *a, **k: False)  # force the FIRMS path (offline, deterministic)
     main._LIVE_CACHE.clear()
     r = client.get("/live", params={"region": "brasil_pantanal", "days": 1})
     assert r.status_code == 200

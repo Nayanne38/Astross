@@ -290,8 +290,8 @@ export function HomeView() {
               )}
             </section>
           ) : (
-            <Card title="Historical series" value={reg?.data_start ? "Available" : `Processing${reg?.progress ? " · " + Math.round(reg.progress * 100) + "%" : ""}`}
-              note={reg?.data_start ? "Calendar and MODIS + VIIRS harmonization (2003–today) in the tabs above." : "Downloading and harmonizing 2003 to today from NASA FIRMS in the background. It opens automatically when finished."} />
+            <Card title="Historical series" value={reg?.data_start ? "Available" : "Live only"}
+              note={reg?.data_start ? "Calendar and MODIS + VIIRS harmonization (2003–today) in the tabs above." : "This region is monitored live from NASA FIRMS. The risk forecast is available."} />
           )}
         </div>
       )}
