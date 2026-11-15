@@ -63,7 +63,29 @@ def etl_incremental(*args):
 
 
 def api(*args):
-    py("-m", "uvicorn", "api.main:app", "--reload", "--port", "8000", *args)
+    py("-m", "uvicorn", "api.main:app", "--reload", "--port", os.getenv("API_PORT", "8000"), *args)
+
+
+def train(*args):
+    py("-m", "ml.train", *args)
+
+
+def forecast(*args):
+    py("-m", "ml.forecast", *args)
+
+
+def web(*args):
+    npm = shutil.which("npm")
+    if not npm:
+        sys.exit("npm not found. Install Node.js 20+.")
+    if not (ROOT / "web" / "node_modules").exists():
+        run(npm, "install", cwd=ROOT / "web")
+    run(npm, "run", *(args or ("dev",)), cwd=ROOT / "web")
+
+
+def bot(*args):
+    """Telegram fire-alert bot + periodic FIRMS scan (needs TELEGRAM_BOT_TOKEN)."""
+    py("-m", "alerts.bot", *args)
 
 
 def test(*args):
@@ -77,10 +99,11 @@ TARGETS = {
     "test": test,
     "etl": etl,
     "etl-incremental": etl_incremental,
-    "train": not_yet(5),
-    "forecast": not_yet(5),
+    "train": train,
+    "forecast": forecast,
     "api": api,
-    "web": not_yet(4),
+    "web": web,
+    "bot": bot,
     "demo": not_yet(6),
 }
 

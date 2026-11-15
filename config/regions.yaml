@@ -3,6 +3,8 @@
 regions:
   matopiba:
     name: "Cerrado — Matopiba"
+    name_en: "Cerrado — Matopiba"
+    group: "Brasil"
     bbox: [-50.8, -15.3, -41.8, -2.2]
     timezone_offset_hours: -3
   sample_tocantins:
@@ -10,3 +12,22 @@ regions:
     name: "Amostra sintética — Tocantins"
     bbox: [-49.0, -11.0, -47.0, -9.0]
     timezone_offset_hours: -3
+
+  # ---- Global monitoring tier ("live"): NASA FIRMS near-real-time only (last 1-5 days), no history in the DB.
+  # The full harmonized series (calendar, harmonization, forecast, CSV) exists for the regions above.
+  brasil_amazonia: {name: "Amazônia Legal", name_en: "Legal Amazon", group: "Brasil", live: true, bbox: [-74.0, -18.0, -44.0, 5.0]}
+  brasil_pantanal: {name: "Pantanal", name_en: "Pantanal", group: "Brasil", live: true, bbox: [-59.5, -22.5, -54.5, -15.5]}
+  brasil_sul: {name: "Sul e Mata Atlântica", name_en: "South and Atlantic Forest", group: "Brasil", live: true, bbox: [-57.7, -33.8, -39.0, -19.0]}
+  brasil_nordeste: {name: "Nordeste e Caatinga", name_en: "Northeast and Caatinga", group: "Brasil", live: true, bbox: [-48.0, -18.5, -34.5, -1.0]}
+  usa_west: {name: "EUA: Costa Oeste", name_en: "USA: West Coast", group: "Américas", live: true, bbox: [-125.0, 32.0, -114.0, 49.0]}
+  canada_boreal: {name: "Canadá: floresta boreal", name_en: "Canada: boreal forest", group: "Américas", live: true, bbox: [-130.0, 48.0, -90.0, 62.0]}
+  mexico_central_america: {name: "México e América Central", name_en: "Mexico and Central America", group: "Américas", live: true, bbox: [-118.0, 8.0, -84.0, 33.0]}
+  bolivia_chaco: {name: "Bolívia, Paraguai e Chaco", name_en: "Bolivia, Paraguay and the Chaco", group: "Américas", live: true, bbox: [-70.0, -29.0, -54.0, -9.0]}
+  mediterranean: {name: "Mediterrâneo", name_en: "Mediterranean", group: "Europa", live: true, bbox: [-10.0, 34.0, 36.0, 45.0]}
+  africa_savanna: {name: "Faixa de savanas africanas", name_en: "African savanna belt", group: "África", live: true, bbox: [10.0, -20.0, 42.0, 12.0]}
+  india_south_asia: {name: "Índia e Sul da Ásia", name_en: "India and South Asia", group: "Ásia", live: true, bbox: [68.0, 8.0, 92.0, 32.0]}
+  southeast_asia: {name: "Sudeste Asiático continental", name_en: "Mainland Southeast Asia", group: "Ásia", live: true, bbox: [92.0, 5.0, 110.0, 24.0]}
+  indonesia: {name: "Indonésia (Sumatra e Bornéu)", name_en: "Indonesia (Sumatra and Borneo)", group: "Ásia", live: true, bbox: [94.0, -11.0, 119.0, 7.0]}
+  siberia: {name: "Sibéria", name_en: "Siberia", group: "Ásia", live: true, bbox: [90.0, 50.0, 140.0, 66.0]}
+  australia_east: {name: "Austrália Oriental", name_en: "Eastern Australia", group: "Oceania", live: true, bbox: [138.0, -39.0, 154.0, -10.0]}
+  australia_north: {name: "Austrália Setentrional", name_en: "Northern Australia", group: "Oceania", live: true, bbox: [112.0, -20.0, 142.0, -10.0]}

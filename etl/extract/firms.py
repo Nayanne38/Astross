@@ -70,6 +70,9 @@ class FirmsClient:
         self._last = time.monotonic()
         try:
             r = self.http.get(url)
+            if r.status_code == 400 and r.text.startswith("Exceeding"):
+                time.sleep(90)
+                raise FirmsError(r.text[:200])
             r.raise_for_status()
         except httpx.HTTPStatusError as e:
             raise httpx.HTTPStatusError(self._redact(str(e)), request=e.request,
@@ -126,6 +129,7 @@ class FirmsClient:
             return pd.read_csv(cache, dtype={"acq_time": str})
         tmp = path("raw_cache") / "country" / f"{d}_{year}_{country}.csv"
         if not tmp.exists():
+            tmp.parent.mkdir(parents=True, exist_ok=True)   # fresh checkout: data/raw/country/ absent
             url = f"{BASE}/data/country/{d}/{year}/{d}_{year}_{country}.csv"
             log.info("  downloading %s %d (%s, national file)...", source, year, country)
             with self.http.stream("GET", url) as r:

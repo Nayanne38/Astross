@@ -120,10 +120,44 @@ CREATE TABLE IF NOT EXISTS etl_runs (
     message     TEXT
 );
 
+-- Fire alerts (Telegram bot). Personal data: deleted on /parar (LGPD).
+CREATE TABLE IF NOT EXISTS alert_recipients (
+    id               VARCHAR(32) PRIMARY KEY,
+    kind             VARCHAR(12) NOT NULL,          -- cidadao | bombeiro
+    full_name        VARCHAR(120) NOT NULL,
+    phone            VARCHAR(32) NOT NULL,
+    age              SMALLINT,
+    address          TEXT,
+    unit             VARCHAR(120),
+    city             VARCHAR(80),
+    state            VARCHAR(2),
+    lat              DOUBLE PRECISION NOT NULL,
+    lon              DOUBLE PRECISION NOT NULL,
+    radius_km        DOUBLE PRECISION NOT NULL,
+    bbox_w DOUBLE PRECISION, bbox_s DOUBLE PRECISION, bbox_e DOUBLE PRECISION, bbox_n DOUBLE PRECISION,
+    link_token       VARCHAR(40) NOT NULL UNIQUE,
+    telegram_chat_id BIGINT,
+    guardian_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    consent_at       TIMESTAMPTZ NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL,
+    active           BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS alert_log (
+    recipient_id VARCHAR(32) NOT NULL,
+    fire_key     VARCHAR(64) NOT NULL,
+    kind         VARCHAR(12) NOT NULL,              -- alerta | teste
+    fire_lat     DOUBLE PRECISION,
+    fire_lon     DOUBLE PRECISION,
+    sent_at      TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (recipient_id, fire_key)
+);
+
 -- Supabase: the public schema is exposed via the REST API (anon key). RLS with no policies blocks
 -- that path; the ETL and FastAPI connect as the owner and are not affected.
 DO $$ DECLARE t text; BEGIN
   FOREACH t IN ARRAY ARRAY['raw_hotspots','daily_cell_counts','monthly_cell_counts','regional_daily',
-    'monthly_region_stats','calibration_metrics','risk_forecasts','etl_runs'] LOOP
+    'monthly_region_stats','calibration_metrics','risk_forecasts','etl_runs',
+    'alert_recipients','alert_log'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
   END LOOP; END $$;

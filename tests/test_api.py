@@ -109,7 +109,7 @@ def test_export_csv_columns(client):
     lines = r.text.splitlines()
     assert lines[0].startswith("# Este projeto usa dados do NASA")
     assert lines[1] == ("date,region,cell_id,lat,lon,harmonized_count,modis_count,viirs_count,"
-                        "source_mix,percentile,anomaly_zscore")
+                        "source_mix,percentile,anomaly_zscore,modis_only")
     assert len(lines) > 2
     f = client.get(f"/export.csv?{R}&kind=forecast").text.splitlines()[1]
     assert f.endswith("risk_probability,horizon_days")
@@ -119,3 +119,96 @@ def test_errors_are_actionable(client):
     assert client.get("/calendar?region=nope").status_code == 404
     assert client.get(f"/calendar?{R}&bbox=1,2").status_code == 422
     assert client.get(f"/calendar?{R}&start=2020-01-01&end=2019-01-01").status_code == 422
+
+
+def test_forecast_insight(client, monkeypatch):
+    from datetime import date
+    from etl.load import db
+    from api import llm, queries
+    import api.main as main
+    import h3
+    cells = list(h3.grid_disk(h3.latlng_to_cell(-10.0, -48.0, 6), 1))
+    db.upsert("risk_forecasts", pd.DataFrame({
+        "region": "sample_tocantins", "h3_cell": cells, "forecast_date": date(2026, 11, 13), "horizon_days": 7,
+        "probability": [0.7, 0.4, 0.2, 0.1, 0.05, 0.03, 0.02], "risk_class":
+        ["muito_alto", "alto", "moderado", "moderado", "baixo", "baixo", "baixo"], "model_version": "test"}))
+    queries.clear_cache()
+    main._INSIGHTS.clear()
+    seen = {}
+
+    def fake(context, audience):
+        seen["ctx"], seen["aud"] = context, audience
+        return llm.Insight(titulo="t", resumo="r", areas_prioritarias=[], fatores=[], confianca="media",
+                           justificativa_confianca="j", limitacoes=[], recomendacoes=[])
+    monkeypatch.setattr(llm, "generate_insight", fake)
+    r = client.get(f"/forecast/insight?{R}&audience=professor")
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["insight"]["confianca"] == "media" and j["audience"] == "professor"
+    top = seen["ctx"]["previsao"]["celulas_maior_risco"][0]
+    assert top["probabilidade"] == 0.7 and top["classe"] == "muito_alto"   # numbers come from the model
+    assert client.get("/forecast").json() is not None
+
+    def boom(*_):
+        raise llm.InsightUnavailable("sem chave")
+    monkeypatch.setattr(llm, "generate_insight", boom)
+    main._INSIGHTS.clear()
+    r = client.get(f"/forecast/insight?{R}")
+    assert r.status_code == 503 and "sem chave" in r.json()["detail"]
+
+
+def test_export_monthly(client):
+    r = client.get(f"/export.csv?{R}&start=2010-01-01&end=2011-12-31&kind=monthly")
+    assert r.status_code == 200
+    lines = r.text.splitlines()
+    assert lines[0].startswith("#") and "harmonizado_celulas_dia" in lines[1]
+    assert len(lines) == 2 + 24
+
+
+def test_firetrack_contract(client):
+    s = client.get(f"/summary?{R}").json()
+    c = s["comparison"]
+    assert c["category"] in {"muito_abaixo", "abaixo", "normal", "acima", "muito_acima", "indisponivel"}
+    assert "sentence" in c and c["n_ref"] >= 0
+    cal = client.get(f"/calendar?{R}&top_n=3&nivel=simples").json()
+    assert cal["learn"]["view"] == "calendario" and cal["learn"]["nivel"] == "simples"
+    assert any(x["deviation_pct"] is not None for x in cal["cells"])
+    assert client.get(f"/calendar?{R}&learn=false").json()["learn"] is None
+    h = client.get(f"/hexgrid?{R}&limit=1&boundary=false").json()
+    assert len(h["cells"]) == 1 and h["n_cells"] >= 1
+    en = client.get(f"/harmonization?{R}&lang=en").json()
+    assert en["learn"]["lang"] == "en" and en["limitations_simple"]
+    f = client.get(f"/forecast?{R}&fallback=true").json()
+    assert f["fallback"] is None or f["fallback"]["thresholds"] == [0.25, 0.5, 0.75]
+    assert f["learn"]["view"] == "previsao"
+    g = client.get("/glossary?nivel=tecnico&lang=en").json()
+    assert any(t["id"] == "celula_dia" for t in g)
+    r = client.get(f"/export.csv?{R}&kind=calendar")
+    assert r.headers["x-row-count"].isdigit() and "deviation_pct" in r.text.splitlines()[1]
+    r = client.get(f"/export.csv?{R}&start=2015-08-01&end=2015-08-31&category=coincidentes")
+    assert r.status_code == 200
+
+
+def test_live_regions(client, monkeypatch):
+    """Global (live) tier: listed in /meta, served by /live from FIRMS NRT, refused by the history endpoints."""
+    from datetime import datetime, timezone
+    from alerts import firms_live
+    from api import main
+
+    meta = client.get("/meta").json()
+    live = [r for r in meta["regions"] if r["live"]]
+    assert len(live) >= 10 and all(r["group"] and r["data_start"] is None for r in live)
+    assert any(not r["live"] for r in meta["regions"])
+
+    now = datetime(2026, 11, 15, 14, 30, tzinfo=timezone.utc)
+    fake = [firms_live.Fire(-17.0, -57.0, now, "NOAA-20 (VIIRS)", 12.5, "nominal", "D"),
+            firms_live.Fire(-17.01, -57.01, now, "Terra (MODIS)", 40.0, "alta", "N")]
+    monkeypatch.setattr(firms_live, "fetch", lambda bbox, days=1, client=None: fake)
+    main._LIVE_CACHE.clear()
+    r = client.get("/live", params={"region": "brasil_pantanal", "days": 1})
+    assert r.status_code == 200
+    j = r.json()
+    assert len(j["detections"]) == 2 and j["detections"][0]["frp"] == 40.0  # highest FRP first
+    assert j["days"][0]["hotspots_total"] == 2 and j["days"][0]["harmonized"] is None
+    assert client.get("/live", params={"region": "nope"}).status_code == 404
+    assert client.get("/summary", params={"region": "brasil_pantanal"}).status_code == 409

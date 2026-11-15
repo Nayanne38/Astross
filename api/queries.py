@@ -209,7 +209,7 @@ def regional(region: str) -> pd.DataFrame:
 def recent_detections(region: str, start: date, end: date, cells: frozenset | None, limit: int) -> tuple[pd.DataFrame, bool]:
     t = raw_hotspots
     df = _df(select(t.c.lat, t.c.lon, t.c.date, t.c.time_utc, t.c.satellite, t.c.sensor_family,
-                    t.c.frp, t.c.confidence_class, t.c.h3_cell)
+                    t.c.frp, t.c.confidence_class, t.c.daynight, t.c.h3_cell)
              .where(t.c.region == region, t.c.date >= start, t.c.date <= end)
              .order_by(t.c.date.desc(), t.c.time_utc.desc()).limit(limit + 1))
     if cells is not None:
@@ -235,9 +235,20 @@ def forecast(region: str, horizon: int) -> pd.DataFrame:
     return _df(select(t).where(t.c.region == region, t.c.horizon_days == horizon, t.c.forecast_date == last))
 
 
+@cached
+def climatology_freq(region: str, month: int, y0: int, y1: int) -> pd.DataFrame:
+    """Per cell: fraction of years y0..y1 with a VIIRS detection in `month` (climatology fallback)."""
+    t = monthly_cell_counts
+    df = _df(select(t.c.h3_cell, func.count().label("n"))
+             .where(t.c.region == region, t.c.month == month, t.c.year >= y0, t.c.year <= y1, t.c.viirs_cell_days > 0)
+             .group_by(t.c.h3_cell))
+    df["frequency"] = df.n / (y1 - y0 + 1)
+    return df.sort_values("frequency", ascending=False).reset_index(drop=True)
+
+
 def ml_metrics(region: str) -> dict | None:
     f = Path(path("processed")) / region / "ml_metrics.json"
-    return json.loads(f.read_text()) if f.exists() else None
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
 
 
 # ------------------------------------------------------------------ export

@@ -132,4 +132,40 @@ etl_runs = Table(
     Column("message", Text),
 )
 
+# ------------------------------------------------------------------ fire alerts (Telegram bot)
+# Personal data (LGPD): only what the alert needs; deleted on /parar. RLS on, API-only access.
+alert_recipients = Table(
+    "alert_recipients", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("kind", String(12), nullable=False),            # cidadao | bombeiro
+    Column("full_name", String(120), nullable=False),
+    Column("phone", String(32), nullable=False),
+    Column("age", SmallInteger),                           # cidadão
+    Column("address", Text),                               # cidadão (as typed)
+    Column("unit", String(120)),                           # bombeiro: corporação / batalhão
+    Column("city", String(80)),
+    Column("state", String(80)),
+    Column("country", String(2)),                          # ISO-3166 alpha-2
+    Column("lat", Float, nullable=False),                  # cidadão: address; bombeiro: city centre
+    Column("lon", Float, nullable=False),
+    Column("radius_km", Float, nullable=False),
+    Column("bbox_w", Float), Column("bbox_s", Float),      # bombeiro: municipality bounding box
+    Column("bbox_e", Float), Column("bbox_n", Float),
+    Column("link_token", String(40), nullable=False, unique=True),
+    Column("telegram_chat_id", BigInteger),
+    Column("guardian_consent", Boolean, nullable=False, default=False),
+    Column("consent_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("active", Boolean, nullable=False, default=True),
+)
+
+alert_log = Table(
+    "alert_log", metadata,
+    Column("recipient_id", String(32), primary_key=True),
+    Column("fire_key", String(64), primary_key=True),      # rounded lat/lon + acquisition date/time
+    Column("kind", String(12), nullable=False),            # alerta | teste
+    Column("fire_lat", Float), Column("fire_lon", Float),
+    Column("sent_at", DateTime(timezone=True), nullable=False),
+)
+
 TABLES = {t.name: t for t in metadata.sorted_tables}

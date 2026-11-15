@@ -33,12 +33,12 @@ FIRMS (area API, archive SP + NRT) ──► data/raw/ (cache, one file per sour
 ## Phases (stop & report after each)
 | # | Deliverable | Done when |
 |---|-------------|-----------|
-| 0 | Plan, skeleton, compose, Makefile/tasks.py, sample data | `python tasks.py test` passes on skeleton; sample generated |
-| 1 | Extract (FIRMS, verified against docs) + normalize + H3 + harmonization; METHODOLOGY draft + before/after plot | Runs on sample offline; runs on real Matopiba if MAP_KEY present |
-| 2 | Load (SQLite/PostGIS, idempotent) + DQ checks + Apache Hop project | `tasks.py etl` fills DB, DQ report printed |
-| 3 | FastAPI endpoints + tests | `/docs` works; pytest green |
-| 4 | Next.js: calendar, filters/palettes, dashboard, map, CSV/PNG export, Harmonização tab | `tasks.py web` shows real API data |
-| 5 | ML features/train/evaluate/forecast + Previsão tab | metrics vs persistence & climatology documented honestly |
+| 0 ✅ | Plan, skeleton, compose, Makefile/tasks.py, sample data | `python tasks.py test` passes on skeleton; sample generated |
+| 1 ✅ | Extract (FIRMS, verified against docs) + normalize + H3 + harmonization; METHODOLOGY draft + before/after plot | Runs on sample offline; runs on real Matopiba if MAP_KEY present |
+| 2 ✅ | Load (SQLite/PostGIS, idempotent) + DQ checks + Apache Hop project | `tasks.py etl` fills DB, DQ report printed |
+| 3 ✅ | FastAPI endpoints + tests | `/docs` works; pytest green |
+| 4 ✅ | Next.js: calendar, filters, dashboard, world map, CSV export, harmonization chart, **Para Professores**, **Apresentação** | `tasks.py web` shows real API data |
+| 5 ✅ | ML features/train/evaluate/forecast + Previsão tab + Claude insight (`/forecast/insight`) | metrics vs persistence & climatology documented honestly |
 | 6 | Docs, `demo`, limitations | teammate runs `demo` in < 10 min |
 
 Cut order if late: Hop polish → 14/30-day horizons → weather features → multi-region.
@@ -54,6 +54,14 @@ Never cut: harmonization, calendar, filters, CSV export, honest evaluation.
   delivering on 2026-11-02). Suomi NPP SP is used for history.
 - **ML target:** P(cell has ≥1 fire-cell-day in next 7 days). Strict temporal split;
   baselines: persistence, climatology.
+  *Deviation (Phase 5):* the DB keeps only 365 daily days (Supabase free tier), so the model
+  trains on weekly origins inside that window and tests on the last 91 days (no target overlap),
+  instead of the multi-year `train_until`/`validate_until` split. Per-cell climatology comes from
+  the full monthly history (years before the forecast year only). Re-run with the parquet history
+  in `data/processed/` for the multi-year split.
+- **Claude (hybrid):** probabilities come only from LightGBM; Claude (`claude-opus-5-5`, structured
+  output) interprets them in pt-BR and is told never to invent figures. Server-side key, cached per
+  forecast date × audience (`geral` | `professor`).
 
 ## Honesty rules
 - The bundled `data/sample/` is **synthetic** (clearly labelled), only for offline tests/demo.

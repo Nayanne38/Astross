@@ -7,6 +7,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from api.edu import Learn
+
 
 class Region(BaseModel):
     key: str
@@ -14,6 +16,10 @@ class Region(BaseModel):
     bbox: list[float] = Field(description="[west, south, east, north]")
     data_start: Optional[date] = None
     data_end: Optional[date] = None
+    name_en: str = ""
+    group: str = ""
+    live: bool = Field(False, description="NRT-only monitoring tier (FIRMS last 1-5 days, no history in the DB)")
+    progress: Optional[float] = Field(None, description="series still processing: share of years done (0-1)")
 
 
 class Meta(BaseModel):
@@ -39,6 +45,7 @@ class CalendarCell(BaseModel):
     percentile: Optional[float] = None
     anomaly_zscore: Optional[float] = None
     is_top: bool = Field(False, description="among the top-N months of the selected period")
+    deviation_pct: Optional[float] = Field(None, description="% deviation of daily_mean vs the mean of the same month in previous complete years (min 3)")
 
 
 class CalendarResponse(BaseModel):
@@ -49,6 +56,7 @@ class CalendarResponse(BaseModel):
     end: date
     cells: list[CalendarCell]
     current: Optional[CalendarCell] = None
+    learn: Optional[Learn] = None
 
 
 class Anomaly(BaseModel):
@@ -62,6 +70,24 @@ class Anomaly(BaseModel):
     category: Literal["muito_abaixo", "abaixo", "normal", "acima", "muito_acima", "indisponivel"] = Field(
         description="from percentile: <10, <33, 33-67, <=90, >90")
     sentence: str = Field(description="plain-language pt-BR explanation")
+
+
+class Comparison(BaseModel):
+    """Current month vs. the same days (partial month) or the same month (complete) in previous years."""
+    year: int
+    month: int
+    days_compared: int
+    same_days_only: bool
+    value: float = Field(description="harmonized fire-cell-days in the compared days")
+    reference_mean: Optional[float] = None
+    deviation_pct: Optional[float] = None
+    percentile: Optional[float] = None
+    category: Literal["muito_abaixo", "abaixo", "normal", "acima", "muito_acima", "indisponivel"]
+    n_ref: int
+    ref_year_min: Optional[int] = None
+    ref_year_max: Optional[int] = None
+    is_provisional: bool
+    sentence: str
 
 
 class RiskSummary(BaseModel):
@@ -85,6 +111,7 @@ class Summary(BaseModel):
     same_month_mean: Optional[float] = Field(None, description="historical mean for the current calendar month")
     current: Optional[Anomaly] = None
     peak: Optional[CalendarCell] = None
+    comparison: Optional[Comparison] = None
     risk_next_7_days: RiskSummary
 
 
@@ -107,7 +134,9 @@ class HexGridResponse(BaseModel):
     granularity: Literal["day", "month"]
     resolution: int
     max_value: float
+    n_cells: int = Field(0, description="cells with value > 0 before `limit`")
     cells: list[HexCell]
+    learn: Optional[Learn] = None
 
 
 class ComparisonPoint(BaseModel):
@@ -155,6 +184,8 @@ class HarmonizationResponse(BaseModel):
     series: list[HarmonizationPoint]
     metrics: list[CalibrationMetric]
     limitations: list[str]
+    limitations_simple: list[str] = []
+    learn: Optional[Learn] = None
 
 
 class RecentDay(BaseModel):
@@ -174,6 +205,7 @@ class Detection(BaseModel):
     sensor_family: str
     frp: Optional[float]
     confidence_class: str
+    daynight: Optional[str] = Field(None, description="D | N")
 
 
 class RecentResponse(BaseModel):
@@ -181,6 +213,21 @@ class RecentResponse(BaseModel):
     days: list[RecentDay]
     detections: list[Detection]
     truncated: bool
+
+
+class WorldRegionCount(BaseModel):
+    key: str
+    name: str
+    count: int
+
+
+class WorldResponse(BaseModel):
+    days: int
+    total: int
+    latest: Optional[date] = None
+    detections: list[Detection]
+    truncated: bool
+    top_regions: list[WorldRegionCount]
 
 
 class ForecastCell(BaseModel):
@@ -200,6 +247,33 @@ class ForecastResponse(BaseModel):
     model_version: Optional[str] = None
     cells: list[ForecastCell]
     metrics: Optional[dict] = Field(None, description="evaluation metrics vs baselines (Phase 5)")
+    disclaimer: str
+    fallback: Optional["ClimatologyFallback"] = None
+    learn: Optional[Learn] = None
+
+
+class FallbackCell(BaseModel):
+    cell_id: str
+    frequency: float = Field(description="fraction of reference years with a VIIRS detection in the month")
+    risk_class: str
+
+
+class ClimatologyFallback(BaseModel):
+    label: str
+    month: int
+    cells: list[FallbackCell]
+    ref_year_min: int
+    ref_year_max: int
+    thresholds: list[float] = Field(description="frequency limits between baixo|moderado|alto|muito_alto")
+
+
+class ForecastInsight(BaseModel):
+    region: str
+    forecast_date: date
+    horizon_days: int
+    audience: Literal["geral", "professor"]
+    model: str = Field(description="Claude model id that wrote the text")
+    insight: dict = Field(description="titulo, resumo, areas_prioritarias, fatores, confianca, limitacoes, recomendacoes")
     disclaimer: str
 
 
