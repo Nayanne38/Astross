@@ -1,106 +1,159 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Download } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Download, Loader2 } from "lucide-react";
 import { useApi, useAppState } from "@/components/app-state";
 import { Panel, Pill } from "@/components/panel";
+import { copy, dados as T } from "@/content/copy";
 import { csvUrl } from "@/lib/api";
-import { addDays, brDate, int } from "@/lib/format";
+import { brDate, int } from "@/lib/format";
+import { granularity } from "@/lib/filters";
+import { cn } from "@/lib/utils";
 import type { ForecastResponse, HexGridResponse } from "@/lib/types";
 
-const COLUMNS: [string, string][] = [
-  ["date", "Dia (dados diários) ou 1º dia do mês (dados mensais), AAAA-MM-DD"],
-  ["region", "Chave da região (config/regions.yaml)"],
-  ["cell_id", "Hexágono H3 resolução 6 (~36 km²)"],
-  ["lat, lon", "Centro do hexágono (graus WGS84), não a posição do fogo"],
-  ["harmonized_count", "Células-dia com detecção na escala VIIRS (série harmonizada). Antes de 2012 é estimativa a partir do MODIS"],
-  ["modis_count, viirs_count", "Detecções de cada sensor no hexágono, após filtros de qualidade (VIIRS soma os satélites)"],
-  ["source_mix", "Quem detectou: MODIS, VIIRS ou BOTH (ambos), pelas contagens brutas. harmonized_count usa só o satélite VIIRS de referência, por isso pode ser 0 numa linha VIIRS"],
-  ["percentile, anomaly_zscore", "Posição do mês da região em relação ao mesmo mês nos outros anos (repetido em cada linha do mês)"],
-  ["modis_only", "1 = só o MODIS detectou neste hexágono e período (nenhuma detecção VIIRS); 0 = caso contrário. Útil para ver o que só o sensor antigo registrou"],
-];
+const t = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ""));
+const ring = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+const S = copy.sidebar;
 
-const field = "rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm";
+type Job = { kind: "history" | "calendar" | "forecast"; state: "busy" | "done" | "error"; msg?: string };
+
+/** Fetch the CSV (so we can show progress and the row count), then save it as a blob. */
+async function downloadCsv(url: string): Promise<{ name: string; rows: number }> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(String(r.status));
+  const blob = await r.blob();
+  const name = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") ?? "")?.[1] ?? "dados.csv";
+  const header = r.headers.get("x-row-count");
+  const rows = header !== null ? Number(header) : Math.max(0, (await blob.text()).split("\n").filter(Boolean).length - 2);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return { name, rows };
+}
 
 export function DataView() {
-  const { region, range, meta } = useAppState();
-  const dataEnd = region?.data_end ?? undefined;
-  const dailyStart = meta?.daily_window_start ?? undefined;
-  const [start, setStart] = useState<string | null>(null);
-  const [end, setEnd] = useState<string | null>(null);
-  const [bbox, setBbox] = useState("");
-  const s = start ?? range.start ?? (dataEnd ? addDays(dataEnd, -29) : "");
-  const e = end ?? range.end ?? dataEnd ?? "";
-  const days = s && e ? Math.round((Date.parse(e) - Date.parse(s)) / 864e5) + 1 : 0;
-  const daily = !!(dailyStart && s >= dailyStart);
-  const bboxOk = bbox.trim() === "" || /^-?\d+(\.\d+)?(,-?\d+(\.\d+)?){3}$/.test(bbox.replace(/\s/g, ""));
+  const { region, range, area, committed, meta } = useAppState();
+  const [job, setJob] = useState<Job | null>(null);
+  useEffect(() => {
+    if (job?.state !== "done" && job?.state !== "error") return;
+    const id = setTimeout(() => setJob(null), 8000);
+    return () => clearTimeout(id);
+  }, [job]);
 
-  // Row-count hint: number of cells with detections in the period (from /hexgrid, no geometry).
-  const hex = useApi<HexGridResponse>(region && s && e && bboxOk ? "/hexgrid" : null,
-    { region: region?.key, start: s, end: e, boundary: false, limit: 1, learn: false, bbox: bbox.replace(/\s/g, "") || undefined });
+  const start = range.start ?? region?.data_start ?? undefined;
+  const end = range.end ?? region?.data_end ?? undefined;
+  const gran = granularity(start, meta?.daily_window_start);
+  const days = start && end ? Math.round((Date.parse(end) - Date.parse(start)) / 864e5) + 1 : 0;
+  const months = start && end ? (Number(end.slice(0, 4)) - Number(start.slice(0, 4))) * 12 + Number(end.slice(5, 7)) - Number(start.slice(5, 7)) + 1 : 0;
+  const base = { region: region?.key, start, end, ...area };
+
+  const hex = useApi<HexGridResponse>(region && start ? "/hexgrid" : null, { ...base, boundary: false, limit: 1, learn: false });
   const fc = useApi<ForecastResponse>(region ? "/forecast" : null, { region: region?.key, limit: 1, learn: false, fallback: false });
-  const heavy = !daily && days > 366;
-  const url = useMemo(() => region ? csvUrl({ region: region.key, start: s, end: e, bbox: bbox.replace(/\s/g, "") || undefined }) : "#",
-    [region, s, e, bbox]);
-
   if (!region) return null;
+
+  const urls = {
+    history: csvUrl({ ...base, sensor: committed.sensor === "todos" ? undefined : committed.sensor,
+      category: committed.category === "todas" ? undefined : committed.category }),
+    calendar: csvUrl({ ...base, kind: "calendar" }),
+    forecast: csvUrl({ region: region.key, ...area, kind: "forecast" }),
+  };
+  async function run(kind: Job["kind"]) {
+    setJob({ kind, state: "busy" });
+    try {
+      const { name, rows } = await downloadCsv(urls[kind]);
+      setJob({ kind, state: "done", msg: t(T.done, { f: name, n: int(rows) }) });
+    } catch {
+      setJob({ kind, state: "error", msg: T.failed });
+    }
+  }
+
+  const summary: [string, string][] = [
+    [T.labels.region, region.name],
+    [T.labels.area, committed.area ? T.customArea : T.wholeRegion],
+    [T.labels.period, `${S.periods[committed.period]} · ${brDate(start)} a ${brDate(end)}`],
+    [T.labels.sensor, S.sensors[committed.sensor]],
+    [T.labels.category, S.categories[committed.category]],
+    [T.labels.frp, committed.frp.length ? committed.frp.map((f) => S.frpClasses[f]).join(", ") : T.frpAll],
+  ];
+  const busy = job?.state === "busy";
+
+  function dlButton(kind: Job["kind"], primary = false) {
+    const mine = busy && job?.kind === kind;
+    return (
+      <button key={kind} type="button" onClick={() => run(kind)} disabled={busy} aria-busy={mine}
+        className={cn("inline-flex min-h-11 items-center gap-2 rounded-md px-4 py-2 text-sm disabled:opacity-60", ring,
+          primary ? "bg-brand font-semibold text-black hover:opacity-90" : "border border-border hover:bg-accent")}>
+        {mine ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Download className="size-4" aria-hidden />}
+        {mine ? T.downloading : kind === "forecast" ? T.forecastCsv : T.download}
+      </button>
+    );
+  }
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
-      <Panel title="Exportar CSV por hexágono" subtitle={`${region.name} · fonte: NASA FIRMS (MODIS + VIIRS), série harmonizada`}>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-1 text-sm">De
-            <input type="date" className={`${field} block w-full`} value={s} min={region.data_start ?? undefined} max={e || undefined} onChange={(x) => setStart(x.target.value)} />
-          </label>
-          <label className="space-y-1 text-sm">Até
-            <input type="date" className={`${field} block w-full`} value={e} min={s || undefined} max={dataEnd} onChange={(x) => setEnd(x.target.value)} />
-          </label>
-          <label className="space-y-1 text-sm sm:col-span-2">Recorte opcional (oeste, sul, leste, norte em graus)
-            <input className={`${field} block w-full`} placeholder="ex.: -48.5,-10.5,-47.5,-9.5" value={bbox} onChange={(x) => setBbox(x.target.value)} aria-invalid={!bboxOk} />
-            {!bboxOk && <span className="text-xs text-fire">Use quatro números separados por vírgula.</span>}
-          </label>
+    <div className="space-y-4">
+      <Panel title={T.filtersTitle} subtitle={T.filtersHelp}>
+        <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 xl:grid-cols-3">
+          {summary.map(([k, v]) => (
+            <div key={k}><dt className="text-xs text-muted-foreground">{k}</dt><dd>{v}</dd></div>
+          ))}
+        </dl>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <Pill>{T.granularity[gran]}</Pill>
+          <span className="text-muted-foreground">
+            {hex.data ? t(T.cellsHint, { n: int(hex.data.n_cells) }) : hex.loading ? copy.states.loading : ""}
+            {days ? ` · ${int(days)} dias` : ""}
+          </span>
         </div>
-
-        <ul className="mt-4 space-y-1.5 text-sm">
-          <li>Granularidade: <Pill>{daily ? "diária (uma linha por dia e hexágono)" : "mensal (uma linha por mês e hexágono)"}</Pill></li>
-          <li className="text-muted-foreground">
-            {daily ? `Dados diários existem a partir de ${brDate(dailyStart)}; antes disso o arquivo usa totais mensais.`
-              : `Para dados diários, comece em ${brDate(dailyStart)} ou depois.`}
-          </li>
-          <li className="text-muted-foreground">
-            {hex.data ? `${int(hex.data.n_cells)} hexágonos com detecção no período` : hex.loading ? "Calculando tamanho…" : ""}
-            {hex.data && days ? ` · ${int(days)} dias` : ""}
-          </li>
-          {heavy && <li className="rounded-md border border-fire/40 bg-fire/10 p-2 text-xs">Período longo em dados mensais por hexágono pode gerar um arquivo grande (centenas de milhares de linhas). Para a série regional mês a mês, use “Baixar CSV” no Calendário.</li>}
-        </ul>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <a href={bboxOk ? url : undefined} aria-disabled={!bboxOk}
-            className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-black hover:opacity-90 aria-disabled:pointer-events-none aria-disabled:opacity-40">
-            <Download className="size-4" /> Baixar CSV
-          </a>
-          {fc.data?.available
-            ? <a href={csvUrl({ region: region.key, kind: "forecast" })} className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent"><Download className="size-4" /> CSV da previsão</a>
-            : <span className="self-center text-xs text-muted-foreground">CSV de previsão: indisponível até existir um modelo avaliado.</span>}
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          A primeira linha do arquivo traz a atribuição obrigatória à NASA FIRMS. Dados derivados sob CC BY 4.0.
-          Os dias a partir de 1º/08/2026 vêm de produtos em tempo quase real e são provisórios.
-        </p>
+        <p className="mt-2 text-xs text-muted-foreground">{t(T.dailyFrom, { d: brDate(meta?.daily_window_start) })}</p>
+        {committed.frp.length > 0 && <p className="mt-1 text-xs text-fire">{T.labels.frp}: {T.frpNotApplied}</p>}
       </Panel>
 
-      <Panel title="Dicionário de colunas" subtitle="Unidade principal: células-dia com detecção de foco de calor (não é área queimada)">
-        <table className="w-full text-sm">
-          <caption className="sr-only">Colunas do arquivo CSV</caption>
-          <tbody>
-            {COLUMNS.map(([c, d]) => (
-              <tr key={c} className="border-t border-border align-top">
-                <th scope="row" className="whitespace-nowrap py-2 pr-3 text-left font-mono text-xs text-brand">{c}</th>
-                <td className="py-2 text-muted-foreground">{d}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title={T.focosTitle}>
+          <p className="text-sm text-muted-foreground">{T.focosDesc}</p>
+          {gran === "Mensal" && days > 366 && <p className="mt-3 rounded-md border border-fire/40 bg-fire/10 p-2 text-xs">{T.heavy}</p>}
+          <div className="mt-4">{dlButton("history", true)}</div>
+        </Panel>
+        <Panel title={T.calTitle}>
+          <p className="text-sm text-muted-foreground">{T.calDesc}</p>
+          <p className="mt-2 text-xs text-muted-foreground">{t(T.monthsHint, { n: int(months) })}</p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {dlButton("calendar", true)}
+            {fc.data?.available ? dlButton("forecast") : <span className="text-xs text-muted-foreground">{T.forecastNA}</span>}
+          </div>
+        </Panel>
+      </div>
+      <p className="text-xs text-muted-foreground">{T.legal}</p>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title={T.dictTitle} subtitle={T.dictSub}><Dict rows={T.columns} caption={T.focosTitle} /></Panel>
+        <Panel title={`${T.dictTitle}: ${T.calTitle.toLowerCase()}`}><Dict rows={T.calColumns} caption={T.calTitle} /></Panel>
+      </div>
+
+      <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-4 bottom-12 z-[1000] flex justify-center">
+        {job && job.state !== "busy" && (
+          <p className={cn("pointer-events-auto rounded-lg border px-4 py-2 text-sm shadow-lg",
+            job.state === "done" ? "border-brand/50 bg-panel" : "border-fire/60 bg-panel text-fire")}>{job.msg}</p>
+        )}
+      </div>
     </div>
+  );
+}
+
+function Dict({ rows, caption }: { rows: [string, string][]; caption: string }) {
+  return (
+    <table className="w-full text-sm">
+      <caption className="sr-only">{caption}</caption>
+      <tbody>
+        {rows.map(([c, d]) => (
+          <tr key={c} className="border-t border-border align-top">
+            <th scope="row" className="py-2 pr-3 text-left font-mono text-xs text-brand">{c}</th>
+            <td className="py-2 text-muted-foreground">{d}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

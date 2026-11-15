@@ -47,7 +47,7 @@ app.add_middleware(CORSMiddleware,
                    # local dev on any port (Next picks 3001+ when 3000 is busy) and via 127.0.0.1
                    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
                    allow_methods=["GET"], allow_headers=["*"],
-                   expose_headers=["Content-Disposition"])
+                   expose_headers=["Content-Disposition", "X-Row-Count"])
 app.add_middleware(GZipMiddleware, minimum_size=2000)
 
 
@@ -477,9 +477,27 @@ def forecast(a: Area = Depends(), horizon: int = Query(7, ge=1, le=30), boundary
 
 @app.get("/export.csv", response_class=StreamingResponse,
          responses={200: {"content": {"text/csv": {}}, "description": "CSV download"}})
-def export_csv(a: Area = Depends(), kind: str = Query("history", pattern="^(history|forecast)$"),
-               horizon: int = Query(7, ge=1, le=30)):
-    if kind == "forecast":
+def export_csv(a: Area = Depends(), kind: str = Query("history", pattern="^(history|forecast|calendar)$"),
+               horizon: int = Query(7, ge=1, le=30),
+               sensor: str = Query("todos", pattern="^(todos|modis|viirs)$",
+                                   description="history only: keep rows where this sensor detected"),
+               category: str = Query("todas", pattern="^(todas|modis|viirs|coincidentes)$",
+                                     description="history only: modis = only MODIS, viirs = only VIIRS, coincidentes = both")):
+    if kind == "calendar":
+        m = q.monthly(a.region, a.cells)
+        if m.empty:
+            raise HTTPException(503, "no monthly statistics loaded")
+        m = q.in_period(m.assign(deviation_pct=_deviation(m)), a.start, a.end)
+        out = pd.DataFrame({
+            "year": m.year.astype(int), "month": m.month.astype(int), "region": a.region,
+            "area": "custom" if a.custom else "region",
+            "harmonized_cell_days": m.harmonized_total, "daily_mean": m.daily_mean,
+            "modis_cell_days": m.modis_cell_days, "viirs_cell_days": m.viirs_cell_days,
+            "detections": m.hotspot_count, "obs_days": m.obs_days, "is_partial": m.is_partial.astype(int),
+            "percentile": m.percentile, "deviation_pct": m.deviation_pct,
+        })
+        name = f"calendario_{a.region}_{a.start}_{a.end}.csv"
+    elif kind == "forecast":
         f = q.forecast(a.region, horizon)
         if a.cells is not None and len(f):
             f = f[f.h3_cell.isin(a.cells)]
@@ -501,13 +519,20 @@ def export_csv(a: Area = Depends(), kind: str = Query("history", pattern="^(hist
         out, gran = q.export_rows(a.region, a.start, a.end, a.cells)
         # cell seen only by MODIS (no VIIRS detection in the same cell and period row)
         out["modis_only"] = ((out.modis_count > 0) & (out.viirs_count == 0)).astype(int)
+        if sensor != "todos":
+            out = out[out[f"{sensor}_count"] > 0]
+        if category != "todas":
+            both = (out.modis_count > 0) & (out.viirs_count > 0)
+            out = out[both if category == "coincidentes" else
+                      (out.modis_count > 0) & ~both if category == "modis" else (out.viirs_count > 0) & ~both]
         name = f"queimadas_{a.region}_{a.start}_{a.end}_{'diario' if gran == 'day' else 'mensal'}.csv"
     buf = io.StringIO()
     buf.write(f"# {ATTRIBUTION}\n")
     out.to_csv(buf, index=False, float_format="%.4f")
     buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv; charset=utf-8",
-                             headers={"Content-Disposition": f'attachment; filename="{name}"'})
+                             headers={"Content-Disposition": f'attachment; filename="{name}"',
+                                      "X-Row-Count": str(len(out))})
 
 
 # ------------------------------------------------------------------ educational endpoints

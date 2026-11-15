@@ -227,3 +227,22 @@ def test_export_modis_only_flag(client):
     df = pd.read_csv(io.StringIO(client.get(f"/export.csv?{R}&start=2015-08-01&end=2015-08-31").text), comment="#")
     assert set(df.modis_only.unique()) <= {0, 1}
     assert ((df.modis_only == 1) == ((df.modis_count > 0) & (df.viirs_count == 0))).all()
+
+
+def test_export_filters_and_calendar(client):
+    import io
+    base = f"/export.csv?{R}&start=2015-08-01&end=2015-08-31"
+    allr = client.get(base)
+    full = pd.read_csv(io.StringIO(allr.text), comment="#")
+    assert int(allr.headers["x-row-count"]) == len(full)
+    m = pd.read_csv(io.StringIO(client.get(base + "&sensor=modis").text), comment="#")
+    assert len(m) and (m.modis_count > 0).all()
+    c = pd.read_csv(io.StringIO(client.get(base + "&category=coincidentes").text), comment="#")
+    assert ((c.modis_count > 0) & (c.viirs_count > 0)).all()
+    o = pd.read_csv(io.StringIO(client.get(base + "&category=modis").text), comment="#")
+    assert ((o.modis_count > 0) & (o.viirs_count == 0)).all() and len(o) + len(c) <= len(full)
+    assert client.get(base + "&sensor=nope").status_code == 422
+    cal = client.get(f"/export.csv?{R}&kind=calendar&start=2014-01-01&end=2015-12-31")
+    k = pd.read_csv(io.StringIO(cal.text), comment="#")
+    assert len(k) == 24 and {"year", "month", "harmonized_cell_days", "percentile", "deviation_pct"} <= set(k.columns)
+    assert "calendario_" in cal.headers["content-disposition"]

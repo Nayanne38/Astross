@@ -1466,6 +1466,10 @@ export interface operations {
             query?: {
                 kind?: string;
                 horizon?: number;
+                /** @description history only: keep rows where this sensor detected */
+                sensor?: string;
+                /** @description history only: modis = only MODIS, viirs = only VIIRS, coincidentes = both */
+                category?: string;
                 /** @description region key (config/regions.yaml) */
                 region?: string | null;
                 /** @description YYYY-MM-DD (default: start of record) */

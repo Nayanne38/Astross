@@ -201,3 +201,4 @@ export type Copy = typeof copy;
 // Page copy lives in content/pages.ts (kept separate for size); import it from here.
 export { harm, prev, urg, sobre } from "./pages";
 export { cal } from "./calendar";
+export { dados } from "./data";
