@@ -109,7 +109,7 @@ def test_export_csv_columns(client):
     lines = r.text.splitlines()
     assert lines[0].startswith("# Este projeto usa dados do NASA")
     assert lines[1] == ("date,region,cell_id,lat,lon,harmonized_count,modis_count,viirs_count,"
-                        "source_mix,percentile,anomaly_zscore")
+                        "source_mix,percentile,anomaly_zscore,modis_only")
     assert len(lines) > 2
     f = client.get(f"/export.csv?{R}&kind=forecast").text.splitlines()[1]
     assert f.endswith("risk_probability,horizon_days")
@@ -186,3 +186,33 @@ def test_glossary_paths_provenance(client):
     assert len(pv["limitacoes"]) == len(pv["limitacoes_simples"]) >= 8
     h = client.get(f"/harmonization?{R}").json()
     assert len(h["limitations_simple"]) == len(h["limitations"])
+
+
+def test_month_comparison_and_deviation(client):
+    j = client.get(f"/summary?{R}").json()
+    c = j["comparison"]
+    assert c["label"] and c["category"] in {"muito_abaixo", "abaixo", "normal", "acima", "muito_acima", "indisponivel"}
+    if c["is_provisional"] or c["same_days_only"]:
+        assert c["days_compared"] <= 31
+    if c["percentile"] is not None:
+        assert c["n_ref"] >= 3 and c["ref_year_max"] < c["year"]       # previous years only
+        assert "%" in c["sentence"]
+    cal = client.get(f"/calendar?{R}&start=2015-01-01&end=2015-12-31").json()
+    assert all(x["deviation_pct"] is not None for x in cal["cells"])     # 2015 has >= 3 previous years
+
+
+def test_forecast_climatology_fallback_is_labelled(client):
+    f = client.get(f"/forecast?{R}").json()
+    fb = f["fallback"]
+    assert f["available"] is False and fb is not None
+    assert "não é previsão" in fb["label"] and fb["thresholds_status"] == "a validar"
+    assert fb["ref_year_min"] >= 2012 and fb["cells"]
+    assert all(0 < x["frequency"] <= 1 for x in fb["cells"])
+    assert client.get(f"/forecast?{R}&fallback=false").json()["fallback"] is None
+
+
+def test_export_modis_only_flag(client):
+    import io
+    df = pd.read_csv(io.StringIO(client.get(f"/export.csv?{R}&start=2015-08-01&end=2015-08-31").text), comment="#")
+    assert set(df.modis_only.unique()) <= {0, 1}
+    assert ((df.modis_only == 1) == ((df.modis_count > 0) & (df.viirs_count == 0))).all()

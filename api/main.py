@@ -27,8 +27,8 @@ from api.education import LIMITATIONS, LIMITATIONS_SIMPLES, MESES, br_int, br_nu
 from api.schemas import (Anomaly, CalendarCell, CalendarResponse, CalibrationMetric, ComparisonPoint,
                          ComparisonResponse, Detection, ForecastCell, ForecastResponse, GlossaryTerm,
                          HarmonizationPoint, HarmonizationResponse, Health, HexCell, HexGridResponse,
-                         LearningPath, Meta, Nivel, ProvenanceResponse, RecentDay, RecentResponse, Region,
-                         RiskSummary, Summary)
+                         LearningPath, Meta, MonthComparison, Nivel, ProvenanceResponse, RecentDay,
+                         RecentResponse, Region, RiskSummary, Summary, ClimatologyCell, ClimatologyFallback)
 from etl.config import get_region, regions, settings
 from etl.load import db
 
@@ -107,13 +107,76 @@ def _nan(v):
     return None if v is None or (isinstance(v, float) and math.isnan(v)) else v
 
 
+def _deviation(m: pd.DataFrame) -> pd.Series:
+    """% deviation of each month's daily mean vs the mean daily value of the same month in PREVIOUS
+    complete years (needs >= 3)."""
+    out = []
+    for r in m.itertuples():
+        ref = m[(m.month == r.month) & (m.year < r.year) & ~m.is_partial.astype(bool)].daily_mean
+        mu = ref.mean() if len(ref) >= 3 else np.nan
+        out.append(round(100 * (r.daily_mean - mu) / mu, 1) if mu and mu > 0 else np.nan)
+    return pd.Series(out, index=m.index)
+
+
+CAT_LABEL = {"muito_abaixo": "Muito abaixo", "abaixo": "Abaixo", "normal": "Normal", "acima": "Acima",
+             "muito_acima": "Muito acima", "indisponivel": "Sem comparação"}
+
+
+def month_comparison(a: "Area", m: pd.DataFrame, pf: Optional[date]) -> Optional[MonthComparison]:
+    """Latest month vs the same month in previous years. In-progress month: only days 1..N of each year
+    (regional daily series). Custom areas have no long daily history: compare daily means instead."""
+    last = m.iloc[-1]
+    y, mo = int(last.year), int(last.month)
+    same_days = bool(last.is_partial) and not a.custom
+    if same_days:
+        r = q.regional(a.region)
+        r = r[r.harmonized.notna()]
+        cur = r[(r.date.dt.year == y) & (r.date.dt.month == mo)]
+        n = int(cur.date.dt.day.max()) if len(cur) else 0
+        value = float(cur.harmonized.sum())
+        prev = r[(r.date.dt.month == mo) & (r.date.dt.day <= n) & (r.date.dt.year < y)]
+        g = prev.groupby(prev.date.dt.year).agg(v=("harmonized", "sum"), d=("harmonized", "size"))
+        ref = g[g.d == n].v                       # only years with all N days observed
+        ref_years = list(ref.index)
+    else:
+        n = int(last.obs_days)
+        value = float(last.daily_mean)
+        prev = m[(m.month == mo) & (m.year < y) & ~m.is_partial.astype(bool)]
+        ref, ref_years = prev.daily_mean, list(prev.year)
+    k = len(ref)
+    if k >= 3:
+        mu = float(ref.mean())
+        p = float(100 * ((ref < value).sum() + 0.5 * (ref == value).sum()) / k)
+        dev = round(100 * (value - mu) / mu, 1) if mu > 0 else None
+    else:
+        mu = p = dev = None
+    cat = edu.category(p)
+    mes = edu.fmt_month(y, mo)
+    is_prov = bool(pf and date(y, mo, int(last.days_in_month)) >= pf)
+    if p is None:
+        sent = f"Ainda não há anos anteriores suficientes (mínimo 3) para comparar {mes}."
+    else:
+        base = (f"nos dias 1 a {n}" if same_days else "na média por dia")
+        sent = (f"{mes.capitalize()} {base}: {edu.br_num(dev, 1, sign=True)}% em relação à média dos {k} anos "
+                f"anteriores ({min(ref_years)}–{max(ref_years)}), percentil {p:.0f}: {CAT_LABEL[cat].lower()}.")
+        if is_prov:
+            sent += " Inclui dados provisórios."
+    return MonthComparison(year=y, month=mo, days_compared=n, same_days_only=same_days,
+                           value=round(value, 3), ref_mean=None if mu is None else round(mu, 3),
+                           deviation_pct=dev, percentile=None if p is None else round(p, 1), category=cat,
+                           label=CAT_LABEL[cat], n_ref=k, ref_year_min=min(ref_years) if ref_years else None,
+                           ref_year_max=max(ref_years) if ref_years else None, is_provisional=is_prov,
+                           sentence=sent)
+
+
 def _cal_cell(r) -> CalendarCell:
     return CalendarCell(year=int(r.year), month=int(r.month), value=round(float(r.harmonized_total), 2),
                         modis_cell_days=int(r.modis_cell_days), viirs_cell_days=int(r.viirs_cell_days),
                         hotspot_count=int(r.hotspot_count), obs_days=int(r.obs_days), is_partial=bool(r.is_partial),
                         daily_mean=round(float(r.daily_mean), 3), percentile=_nan(round(float(r.percentile), 1)) if pd.notna(r.percentile) else None,
                         anomaly_zscore=round(float(r.anomaly_zscore), 2) if pd.notna(r.anomaly_zscore) else None,
-                        is_top=bool(getattr(r, "is_top", False)))
+                        is_top=bool(getattr(r, "is_top", False)),
+                        deviation_pct=None if pd.isna(getattr(r, "deviation_pct", np.nan)) else float(r.deviation_pct))
 
 
 def anomaly_sentence(r, area_label: str, m: Optional[pd.DataFrame] = None,
@@ -174,6 +237,7 @@ def calendar(a: Area = Depends(), top_n: int = Query(5, ge=0, le=24), lo: LearnO
     m = q.monthly(a.region, a.cells)
     if m.empty:
         raise HTTPException(503, "no monthly statistics loaded")
+    m = m.assign(deviation_pct=_deviation(m))
     sel = q.in_period(m, a.start, a.end).copy()
     full = sel[~sel.is_partial]
     top = set(full.nlargest(top_n, "harmonized_total").index) if top_n else set()
@@ -214,6 +278,7 @@ def summary(a: Area = Depends(), lo: LearnOpts = Depends()):
                    monthly_mean=round(float(full.harmonized_total.mean()), 1) if len(full) else 0.0,
                    same_month_mean=round(float(same.harmonized_total.mean()), 1) if len(same) else None,
                    current=anomaly_sentence(last, label, m, pf),
+                   comparison=month_comparison(a, m, pf),
                    peak=_cal_cell(peak) if peak is not None else None,
                    risk_next_7_days=risk, learn=learn)
 
@@ -350,14 +415,49 @@ def recent(a: Area = Depends(), days: int = Query(7, ge=1, le=60), limit: int = 
         truncated=trunc, share_high_confidence=share_high, learn=learn)
 
 
+CLIM_THRESHOLDS = {"moderado": 0.25, "alto": 0.5, "muito_alto": 0.75}
+
+
+def _clim_class(x: float) -> str:
+    t = CLIM_THRESHOLDS
+    return ("muito_alto" if x >= t["muito_alto"] else "alto" if x >= t["alto"]
+            else "moderado" if x >= t["moderado"] else "baixo")
+
+
+def climatology_fallback(a: "Area", limit: int) -> Optional[ClimatologyFallback]:
+    """Historical frequency for the month after the last data day (VIIRS reference years only)."""
+    target = a.data_end + timedelta(days=1)
+    y1 = target.year - 1                            # last complete year for the target month
+    y0 = 2012 if target.month > 1 else 2013          # VIIRS reference starts 2012-01-20
+    df, n_years = q.climatology(a.region, target.month, y0, y1)
+    if a.cells is not None:
+        df = df[df.h3_cell.isin(a.cells)]
+    if df.empty:
+        return None
+    df = df.assign(freq=(df.years / n_years).round(3)).sort_values("freq", ascending=False)
+    region_cells = len(a.cells) if a.cells is not None else None
+    mean = float(df.freq.sum() / region_cells) if region_cells else float(df.freq.mean())
+    mes = MESES[target.month - 1]
+    return ClimatologyFallback(
+        label=(f"Climatologia de {mes} (não é previsão): fração dos anos {y0}–{y1} em que cada hexágono teve "
+               f"ao menos uma detecção de calor VIIRS em {mes}."),
+        method="frequência histórica por hexágono, satélite VIIRS de referência",
+        month=target.month, ref_year_min=y0, ref_year_max=y1, thresholds=CLIM_THRESHOLDS,
+        region_mean=round(mean, 3), region_class=_clim_class(mean), n_cells=len(df), truncated=len(df) > limit,
+        cells=[ClimatologyCell(cell_id=x.h3_cell, frequency=float(x.freq), risk_class=_clim_class(float(x.freq)))
+               for x in df.head(limit).itertuples()])
+
+
 @app.get("/forecast", response_model=ForecastResponse)
 def forecast(a: Area = Depends(), horizon: int = Query(7, ge=1, le=30), boundary: bool = True,
-             lo: LearnOpts = Depends()):
+             lo: LearnOpts = Depends(), fallback: bool = Query(True, description="climatology while no ML model"),
+             limit: int = Query(6000, ge=1, le=60000)):
     f = q.forecast(a.region, horizon)
     if f.empty:
         learn = edu.learn_forecast(make_ctx(a, lo.nivel), False, horizon, 0, None) if lo.on else None
         return ForecastResponse(region=a.region, available=False, horizon_days=horizon, cells=[],
-                                metrics=q.ml_metrics(a.region), disclaimer=FORECAST_DISCLAIMER, learn=learn)
+                                metrics=q.ml_metrics(a.region), disclaimer=FORECAST_DISCLAIMER,
+                                fallback=climatology_fallback(a, limit) if fallback else None, learn=learn)
     if a.cells is not None:
         f = f[f.h3_cell.isin(a.cells)]
     geo = q.cell_geo(f.h3_cell, boundary).rename(columns={"cell_id": "h3_cell"})
@@ -396,6 +496,8 @@ def export_csv(a: Area = Depends(), kind: str = Query("history", pattern="^(hist
         name = f"risco_{a.region}_{horizon}d.csv"
     else:
         out, gran = q.export_rows(a.region, a.start, a.end, a.cells)
+        # cell seen only by MODIS (no VIIRS detection in the same cell and period row)
+        out["modis_only"] = ((out.modis_count > 0) & (out.viirs_count == 0)).astype(int)
         name = f"queimadas_{a.region}_{a.start}_{a.end}_{'diario' if gran == 'day' else 'mensal'}.csv"
     buf = io.StringIO()
     buf.write(f"# {ATTRIBUTION}\n")

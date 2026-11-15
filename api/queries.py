@@ -279,9 +279,15 @@ def export_rows(region: str, start: date, end: date, cells: frozenset | None) ->
 
 @cached
 def provisional_from(region: str) -> tuple[date | None, bool]:
-    """First day with near-real-time (provisional) detections in the raw window, and whether that is
-    exact. raw_hotspots keeps only load.raw_hotspots_keep_days, so when NRT already starts on the first
-    day of the window the true start may be earlier (exact=False)."""
+    """First day of near-real-time (provisional) data and whether that date is exact.
+    1) run_meta.json written by the ETL (product coverage, exact); 2) fallback: raw_hotspots, which keeps
+    only load.raw_hotspots_keep_days, so NRT may start before its first day (exact=False)."""
+    meta = Path(path("processed")) / region / "run_meta.json"
+    if meta.exists():
+        cov = json.loads(meta.read_text()).get("coverage", {})
+        starts = [pd.Timestamp(v[0]).date() for k, v in cov.items() if "NRT" in k and v]
+        if starts:
+            return min(starts), True
     t = raw_hotspots
     with db.engine().connect() as conn:
         first_nrt = conn.execute(select(func.min(t.c.date))
@@ -292,3 +298,14 @@ def provisional_from(region: str) -> tuple[date | None, bool]:
     first_nrt = pd.Timestamp(first_nrt).date()
     exact = first_raw is not None and first_nrt > pd.Timestamp(first_raw).date()
     return first_nrt, exact
+
+
+@cached
+def climatology(region: str, month: int, year_min: int, year_max: int) -> tuple[pd.DataFrame, int]:
+    """Per cell: number of years in [year_min, year_max] with >=1 VIIRS reference fire-cell-day in `month`."""
+    t = monthly_cell_counts
+    df = _df(select(t.c.h3_cell, func.count().label("years"))
+             .where(t.c.region == region, t.c.month == month, t.c.year >= year_min, t.c.year <= year_max,
+                    t.c.viirs_cell_days > 0)
+             .group_by(t.c.h3_cell))
+    return df, year_max - year_min + 1

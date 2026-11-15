@@ -137,6 +137,8 @@ class CalendarCell(BaseModel):
     percentile: Optional[float] = None
     anomaly_zscore: Optional[float] = None
     is_top: bool = Field(False, description="among the top-N months of the selected period")
+    deviation_pct: Optional[float] = Field(None, description="% vs mean daily value of the same month in "
+                                                             "PREVIOUS complete years (>=3)")
 
 
 class CalendarResponse(BaseModel):
@@ -180,6 +182,25 @@ class RiskSummary(BaseModel):
     message: str
 
 
+class MonthComparison(BaseModel):
+    """Current month vs the same month in previous years (in-progress month: same days only)."""
+    year: int
+    month: int
+    days_compared: int = Field(description="days 1..N compared (N = days in month if complete)")
+    same_days_only: bool
+    value: float = Field(description="harmonized fire-cell-days in days 1..N")
+    ref_mean: Optional[float] = None
+    deviation_pct: Optional[float] = Field(None, description="(value - ref_mean) / ref_mean * 100")
+    percentile: Optional[float] = None
+    category: Literal["muito_abaixo", "abaixo", "normal", "acima", "muito_acima", "indisponivel"]
+    label: str
+    n_ref: int
+    ref_year_min: Optional[int] = None
+    ref_year_max: Optional[int] = None
+    is_provisional: bool = False
+    sentence: str
+
+
 class Summary(BaseModel):
     region: str
     start: date
@@ -189,6 +210,7 @@ class Summary(BaseModel):
     monthly_mean: float = Field(description="mean harmonized fire-cell-days per complete month (period)")
     same_month_mean: Optional[float] = Field(None, description="historical mean for the current calendar month")
     current: Optional[Anomaly] = None
+    comparison: Optional[MonthComparison] = None
     peak: Optional[CalendarCell] = None
     risk_next_7_days: RiskSummary
     learn: Optional[Learn] = None
@@ -308,6 +330,28 @@ class ForecastCell(BaseModel):
     boundary: Optional[list[list[float]]] = None
 
 
+class ClimatologyCell(BaseModel):
+    cell_id: str
+    frequency: float = Field(description="share of reference years with >=1 VIIRS detection in the month")
+    risk_class: Literal["baixo", "moderado", "alto", "muito_alto"]
+
+
+class ClimatologyFallback(BaseModel):
+    """Shown while no evaluated ML forecast exists. NOT a forecast: historical frequency."""
+    label: str
+    method: str
+    month: int
+    ref_year_min: int
+    ref_year_max: int
+    thresholds: dict[str, float]
+    thresholds_status: str = "a validar"
+    region_mean: float
+    region_class: Literal["baixo", "moderado", "alto", "muito_alto"]
+    n_cells: int
+    truncated: bool
+    cells: list[ClimatologyCell]
+
+
 class ForecastResponse(BaseModel):
     region: str
     available: bool
@@ -317,6 +361,7 @@ class ForecastResponse(BaseModel):
     cells: list[ForecastCell]
     metrics: Optional[dict] = Field(None, description="evaluation metrics vs baselines (Phase 5)")
     disclaimer: str
+    fallback: Optional[ClimatologyFallback] = None
     learn: Optional[Learn] = None
 
 
