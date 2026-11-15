@@ -10,6 +10,7 @@ regions:
   sample_tocantins:
     # Small box used by the bundled SYNTHETIC sample (data/sample). Offline tests/demo only.
     name: "Amostra sintética — Tocantins"
+    synthetic: true
     bbox: [-49.0, -11.0, -47.0, -9.0]
     timezone_offset_hours: -3
 

@@ -63,6 +63,12 @@ Never cut: harmonization, calendar, filters, CSV export, honest evaluation.
   output) interprets them in pt-BR and is told never to invent figures. Server-side key, cached per
   forecast date × audience (`geral` | `professor`).
 
+## Educational layer (UN SDG 4.7 / 4.4 / 13.3 / 15.1 / 16.10 / 17.18)
+Deterministic pt-BR explanations on every view (`learn` block, `api/education.py`), glossary
+(`GET /glossary`), learning paths (`GET /learn/paths`), provenance (`GET /provenance`) and honesty
+tests (`tests/test_education.py`). Council diagnosis and roadmap: `docs/EDUCACAO_ODS.md`; claims
+matrix: `docs/ODS.md`. Phase 4 must render `learn` next to every chart (see `web/README.md`).
+
 ## Honesty rules
 - The bundled `data/sample/` is **synthetic** (clearly labelled), only for offline tests/demo.
   Real results come only from FIRMS downloads and are reported as such.
