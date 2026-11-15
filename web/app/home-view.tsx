@@ -346,18 +346,20 @@ export function HomeView() {
 function ClassLegend({ colors, breaks, unit, note, decimals }: { colors: string[]; breaks: number[]; unit: string; note: string; decimals: number }) {
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <span>{M.legend.less}</span>
-        <div className="flex">
-          {colors.map((c, i) => <span key={i} className="h-2.5 w-7" style={{ background: c }} />)}
-        </div>
-        <span>{M.legend.more}</span>
+      <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+        <span className="leading-3">{M.legend.less}</span>
+        {colors.map((c, i) => {
+          const b = (k: number) => num(breaks[k] ?? 0, decimals);
+          const label = !breaks.length ? "" : i === 0 ? `≤ ${b(0)}` : i === colors.length - 1 ? `> ${b(i - 1)}` : `${b(i - 1)}–${b(i)}`;
+          return (
+            <span key={i} className="flex flex-col items-start gap-0.5 tabular-nums">
+              <span className="h-2.5 w-10 rounded-sm" style={{ background: c }} />
+              <span className="text-[0.65rem] text-muted-foreground">{label}</span>
+            </span>
+          );
+        })}
+        <span className="leading-3">{M.legend.more}</span>
       </div>
-      {breaks.length > 0 && (
-        <div className="flex tabular-nums text-muted-foreground" style={{ paddingLeft: "calc(2.2rem + 1.75rem * 0.5)" }}>
-          {breaks.map((b, i) => <span key={i} className="w-7 text-center">{num(b, decimals)}</span>)}
-        </div>
-      )}
       <p className="text-muted-foreground">{unit} · {note}</p>
     </div>
   );

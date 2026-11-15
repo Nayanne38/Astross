@@ -13,3 +13,6 @@ web/out/
 *.duckdb
 hop/metadata/**/local-*
 .DS_Store
+
+# API snapshots for the offline fallback (python scripts/cache_api.py); large, regenerate locally
+web/public/cache/*.json

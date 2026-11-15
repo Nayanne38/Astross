@@ -463,6 +463,7 @@ def forecast(a: Area = Depends(), horizon: int = Query(7, ge=1, le=30), boundary
                                 fallback=climatology_fallback(a, limit) if fallback else None, learn=learn)
     if a.cells is not None:
         f = f[f.h3_cell.isin(a.cells)]
+    f = f.sort_values("probability", ascending=False).head(limit)  # highest risk first, capped like the fallback
     geo = q.cell_geo(f.h3_cell, boundary).rename(columns={"cell_id": "h3_cell"})
     f = f.merge(geo, on="h3_cell")
     learn = (edu.learn_forecast(make_ctx(a, lo.nivel), True, horizon, len(f),
