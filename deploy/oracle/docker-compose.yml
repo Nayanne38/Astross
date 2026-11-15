@@ -1,0 +1,41 @@
+# Whole stack on one Oracle Always Free VM. Run from the repo root:
+#   docker compose -f deploy/oracle/docker-compose.yml --env-file .env up -d --build
+# .env must also define API_HOST and WEB_HOST (see deploy/ORACLE.md).
+x-py: &py
+  build: .
+  env_file: .env
+  volumes: ["./data:/app/data"]        # shared: the worker's 30-day store is visible to the API
+  restart: always
+
+services:
+  api:
+    <<: *py
+    environment:
+      API_CORS_ORIGINS: "https://${WEB_HOST}"
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: "https://${API_HOST}"
+        NEXT_PUBLIC_CARTO_KEY: "${NEXT_PUBLIC_CARTO_KEY:-}"
+    restart: always
+  bot:
+    <<: *py
+    command: python -m alerts.bot
+    environment:
+      APP_PUBLIC_URL: "https://${WEB_HOST}"
+  worker:
+    <<: *py
+    command: python -m etl.worker --loop
+  history:
+    <<: *py
+    command: python -m etl.pipelines.lite --all
+    restart: "no"                       # runs once; re-run with: docker compose ... run --rm history
+  caddy:
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    environment: { API_HOST: "${API_HOST}", WEB_HOST: "${WEB_HOST}" }
+    volumes: ["./deploy/oracle/Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data"]
+    restart: always
+volumes:
+  caddy_data:

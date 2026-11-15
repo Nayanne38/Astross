@@ -1,0 +1,17 @@
+.git
+.venv
+__pycache__
+*.pyc
+.env
+node_modules
+web
+docs
+tests
+design
+data/*
+!data/processed
+data/processed/*
+!data/processed/*/
+data/processed/*/*
+!data/processed/*/ml_metrics.json
+!data/processed/*/run_meta.json

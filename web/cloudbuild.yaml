@@ -1,0 +1,8 @@
+# gcloud builds submit web --config web/cloudbuild.yaml --substitutions _API_URL=https://...,_CARTO_KEY=...
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE}", "--build-arg", "NEXT_PUBLIC_API_URL=${_API_URL}",
+           "--build-arg", "NEXT_PUBLIC_CARTO_KEY=${_CARTO_KEY}", "."]
+images: ["${_IMAGE}"]
+substitutions:
+  _CARTO_KEY: ""

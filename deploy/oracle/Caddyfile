@@ -1,0 +1,7 @@
+# Automatic HTTPS (Let's Encrypt). With sslip.io no domain is needed: API_HOST=api.<IP>.sslip.io, WEB_HOST=app.<IP>.sslip.io
+{$API_HOST} {
+	reverse_proxy api:8080
+}
+{$WEB_HOST} {
+	reverse_proxy web:8080
+}
