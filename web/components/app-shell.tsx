@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Accessibility, AlertTriangle, ArrowRight, Flame, Info, LogIn, Menu, Search, SlidersHorizontal, X,
+  Accessibility, AlertTriangle, ArrowRight, Bell, Flame, HandHeart, Info, LogIn, Menu, Search, SlidersHorizontal, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { copy } from "@/content/copy";
@@ -110,6 +110,31 @@ function LoginDialog() {
   );
 }
 
+function CtaDialog({ icon: Icon, label, title, body, primary, inMenu }: {
+  icon: typeof Bell; label: string; title: string; body: string; primary?: boolean; inMenu?: boolean;
+}) {
+  return (
+    <Dialog>
+      {inMenu ? (
+        <DialogTrigger className={cn("flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent", touch, ring)}>
+          <Icon className="size-4" aria-hidden /> {label}
+        </DialogTrigger>
+      ) : (
+        <DialogTrigger title={label} className={cn("items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold max-sm:hidden sm:flex", touch, ring,
+          primary ? "bg-brand text-black hover:bg-brand/90" : "border border-white/70 text-white hover:bg-white/10")}>
+          <Icon className="size-4" aria-hidden /> <span className="hidden xl:inline">{label}</span>
+          <span className="sr-only xl:hidden">{label}</span>
+        </DialogTrigger>
+      )}
+      <DialogContent>
+        <DialogTitle className="font-heading">{title}</DialogTitle>
+        <DialogDescription>{body}</DialogDescription>
+        <p className="text-xs text-muted-foreground">{C.header.emBreveNote}</p>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -127,11 +152,17 @@ function Header() {
             </PopoverTrigger>
             <PopoverContent align="end" className="w-60 p-2">
               <nav aria-label="Principal"><NavLinks vertical onNavigate={() => setMenuOpen(false)} /></nav>
+              <div className="mt-2 border-t border-border pt-2 sm:hidden">
+                <CtaDialog inMenu icon={Bell} label={C.header.alertas} title={C.header.alertasTitle} body={C.header.alertasBody} />
+                <CtaDialog inMenu icon={HandHeart} label={C.header.brigada} title={C.header.brigadaTitle} body={C.header.brigadaBody} />
+              </div>
             </PopoverContent>
           </Popover>
           <Link href="/urgencia" className={cn("flex items-center gap-1.5 rounded-md bg-fire px-3 py-1.5 text-sm font-semibold text-black hover:brightness-110", touch, ring)}>
             <AlertTriangle className="size-4" aria-hidden /> {C.header.urgencia}
           </Link>
+          <CtaDialog icon={Bell} label={C.header.alertas} title={C.header.alertasTitle} body={C.header.alertasBody} primary />
+          <CtaDialog icon={HandHeart} label={C.header.brigada} title={C.header.brigadaTitle} body={C.header.brigadaBody} />
           <A11yPopover />
           <LoginDialog />
         </div>

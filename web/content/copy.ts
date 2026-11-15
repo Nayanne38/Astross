@@ -19,6 +19,13 @@ export const copy = {
     loginTitle: "Login opcional",
     loginBody: "Login opcional: em breve. Tudo funciona sem conta.",
     loginNote: "Nenhum dado pessoal é coletado.",
+    alertas: "Cadastrar alertas",
+    alertasTitle: "Cadastro de alertas",
+    alertasBody: "Cadastro de alertas: em breve. Você poderá receber avisos de focos de calor na sua região.",
+    brigada: "Faça parte da brigada",
+    brigadaTitle: "Brigada de incêndio",
+    brigadaBody: "Faça parte da brigada: em breve. Aqui você vai encontrar como se voluntariar.",
+    emBreveNote: "Nenhum dado pessoal é coletado por enquanto.",
     fechar: "Fechar",
   },
   a11y: {
