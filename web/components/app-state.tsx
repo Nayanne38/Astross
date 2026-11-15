@@ -10,7 +10,7 @@ import type { Meta, Region } from "@/lib/types";
 export type PeriodId = "serie" | "5a" | "12m" | "60d" | "30d" | "7d" | "1d";
 export type MapMode = "densidade" | "focos" | "risco";
 export const PERIODS: { id: PeriodId; label: string }[] = [
-  { id: "serie", label: "Série completa (2003 a hoje)" },
+  { id: "serie", label: "Série completa (2003–hoje)" },
   { id: "5a", label: "Últimos 5 anos" },
   { id: "12m", label: "Últimos 12 meses" },
   { id: "60d", label: "Últimos 60 dias" },
