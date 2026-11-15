@@ -92,3 +92,16 @@ export function anomalyBadge(c: Category | null | undefined): "Abaixo" | "Normal
 export function cellPolygonParam(boundary: [number, number][]): string {
   return boundary.map(([lat, lon]) => `${lon.toFixed(5)},${lat.toFixed(5)}`).join(";");
 }
+
+export interface RiskAgg { id: string; p: number; cls: string; n: number }
+/** Risk cells aggregated to the display resolution, keeping the highest probability (and its class); sorted desc. */
+export function aggregateRisk(cells: { cell_id: string; probability: number; risk_class: string }[], res: number): RiskAgg[] {
+  const agg = new Map<string, RiskAgg>();
+  for (const c of cells) {
+    const k = res === 6 ? c.cell_id : cellToParent(c.cell_id, res);
+    const a = agg.get(k);
+    if (!a) agg.set(k, { id: k, p: c.probability, cls: c.risk_class, n: 1 });
+    else { a.n += 1; if (c.probability > a.p) { a.p = c.probability; a.cls = c.risk_class; } }
+  }
+  return [...agg.values()].sort((x, y) => y.p - x.p);
+}

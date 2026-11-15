@@ -96,6 +96,7 @@ export const copy = {
     apiDown: "API indisponível",
     credit: "Este projeto usa dados do NASA Fire Information for Resource Management System (FIRMS), parte do NASA LANCE e do ESDIS.",
     creditShort: "Fonte: NASA FIRMS",
+    about: "Sobre e créditos",
     creditUrl: "https://earthdata.nasa.gov/firms",
   },
   map: {
@@ -196,3 +197,6 @@ export const copy = {
 } as const;
 
 export type Copy = typeof copy;
+
+// Page copy lives in content/pages.ts (kept separate for size); import it from here.
+export { harm, prev, urg, sobre } from "./pages";

@@ -410,6 +410,7 @@ function StatusBar() {
         <button type="button" className={btn} disabled={s.prefs.fontStep === FONT_STEPS.length - 1} onClick={() => s.setPrefs({ fontStep: s.prefs.fontStep + 1 })} aria-label={C.a11y.larger}>A+</button>
         <button type="button" className={cn(btn, s.prefs.highContrast && "bg-white text-black")} aria-pressed={s.prefs.highContrast}
           onClick={() => s.setPrefs({ highContrast: !s.prefs.highContrast })}>{C.a11y.highContrast}</button>
+        <Link href="/sobre" className={cn("pl-2 underline-offset-2 hover:underline", ring)}>{C.status.about}</Link>
         <a href={C.status.creditUrl} target="_blank" rel="noreferrer" className={cn("pl-2 underline-offset-2 hover:underline", ring)} title={C.status.credit}>
           <span className="hidden xl:inline">{C.status.credit}</span><span className="xl:hidden">{C.status.creditShort}</span>
         </a>
