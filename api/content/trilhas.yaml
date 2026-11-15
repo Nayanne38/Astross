@@ -1,0 +1,123 @@
+# Trilhas de aprendizagem servidas por GET /learn/paths (docs/EDUCACAO_ODS.md §8).
+# Códigos BNCC ficam marcados "a verificar por docente" até validação (regra de honestidade).
+# `params` usa {region} = região padrão; start/end fixos são exemplos e podem ser trocados.
+trilhas:
+  t1:
+    titulo: Lendo o fogo pelo satélite
+    publico: Ensino Fundamental II e público geral
+    ods: ["4.7", "4.4", "13.3"]
+    bncc: ["Competência geral 2", "Competência geral 7"]
+    bloqueada: false
+    etapas:
+      - objetivo: Explicar com suas palavras o que é um foco de calor e o que ele não é.
+        view: recentes
+        endpoint: /recent
+        params: {days: 7}
+        card_id: rec.passagem
+        pergunta_saida: Por que um ponto no mapa não é a mesma coisa que um incêndio?
+      - objetivo: Entender por que o mapa usa hexágonos e o que significa uma célula-dia.
+        view: mapa
+        endpoint: /hexgrid
+        params: {boundary: false}
+        card_id: mapa.concentracao.alta
+        pergunta_saida: Dez células-dia podem ser o mesmo lugar? Explique.
+      - objetivo: Identificar o período com mais detecções e relacioná-lo à estação seca.
+        view: calendario
+        endpoint: /calendar
+        params: {start: "2015-01-01", end: "2025-12-31"}
+        card_id: cal.sazonal
+        pergunta_saida: Em qual trimestre aparece a maior parte das células-dia com detecção? Cite dois anos como evidência.
+      - objetivo: Comparar um mês com o mesmo mês de outros anos.
+        view: resumo
+        endpoint: /summary
+        params: {}
+        card_id: cal.categoria
+        pergunta_saida: Com quantos anos o mês foi comparado? Isso muda a sua confiança na conclusão?
+      - objetivo: Reconhecer limites do dado antes de concluir.
+        view: mapa
+        endpoint: /hexgrid
+        params: {}
+        card_id: mapa.vazio
+        pergunta_saida: Escreva uma frase verdadeira e uma exagerada sobre o mapa.
+  t2:
+    titulo: Dois satélites, uma história
+    publico: Ensino Médio
+    ods: ["4.4", "4.7", "17.18"]
+    bncc: ["EM13MAT102", "EM13CNT301"]
+    bloqueada: false
+    etapas:
+      - objetivo: Perceber que antes de 2012 só há dados do MODIS.
+        view: comparacao
+        endpoint: /comparison
+        params: {start: "2010-01-01", end: "2016-12-31"}
+        card_id: comp.pre_viirs
+        pergunta_saida: Em que ano a linha do VIIRS começa? Por quê?
+      - objetivo: Calcular a razão entre VIIRS e MODIS em três meses.
+        view: comparacao
+        endpoint: /comparison
+        params: {start: "2015-01-01", end: "2015-12-31"}
+        card_id: comp.razao
+        pergunta_saida: Se um satélite novo vê o dobro de fogo, o fogo dobrou?
+      - objetivo: Distinguir trecho medido de trecho estimado na série harmonizada.
+        view: harmonizacao
+        endpoint: /harmonization
+        params: {}
+        card_id: harm.estimado
+        pergunta_saida: Antes de 2012 a linha é medida ou estimada?
+      - objetivo: Ler o erro da validação junto com o resultado.
+        view: harmonizacao
+        endpoint: /harmonization
+        params: {}
+        card_id: harm.validacao
+        pergunta_saida: Por que é honesto mostrar o erro junto com o resultado?
+      - objetivo: Entender por que a calibração usa só 2012–2023.
+        view: harmonizacao
+        endpoint: /harmonization
+        params: {}
+        card_id: harm.janela
+        pergunta_saida: O que muda quando a órbita de um satélite muda?
+  t3:
+    titulo: O fogo no Cerrado
+    publico: Ensino Fundamental II e Ensino Médio (Geografia, Ciências)
+    ods: ["15.1", "13.3", "4.7"]
+    bncc: ["EF07GE11", "Competência geral 10"]
+    bloqueada: false
+    etapas:
+      - objetivo: Conhecer o papel do fogo no Cerrado e a diferença entre manejo e incêndio.
+        view: glossario
+        endpoint: /glossary/cerrado_fogo
+        params: {}
+        card_id: cerrado_fogo
+        pergunta_saida: Todo fogo no Cerrado é ruim? Justifique.
+      - objetivo: Relacionar a estação seca e a chuvosa com o calendário de detecções.
+        view: calendario
+        endpoint: /calendar
+        params: {start: "2018-01-01", end: "2023-12-31"}
+        card_id: cal.sazonal
+        pergunta_saida: O que acontece com a chuva nos meses de mais detecções?
+      - objetivo: Observar onde as detecções se concentram.
+        view: mapa
+        endpoint: /hexgrid
+        params: {}
+        card_id: mapa.concentracao.alta
+        pergunta_saida: Que outra informação você buscaria para entender essa concentração?
+      - objetivo: Formular hipóteses sem atribuir causa.
+        view: glossario
+        endpoint: /glossary/correlacao_causa
+        params: {}
+        card_id: correlacao_causa
+        pergunta_saida: Liste três explicações possíveis e diga como poderia testar cada uma.
+      - objetivo: Comunicar os dados sem alarmismo.
+        view: resumo
+        endpoint: /summary
+        params: {}
+        card_id: cal.categoria
+        pergunta_saida: Escreva um aviso de duas frases para a rádio da comunidade.
+  t4:
+    titulo: Probabilidade não é certeza
+    publico: Ensino Médio e EJA
+    ods: ["4.4", "13.3"]
+    bncc: ["EM13MAT511"]
+    bloqueada: true
+    motivo_bloqueio: Aguardando previsão avaliada contra referências (persistência e climatologia).
+    etapas: []

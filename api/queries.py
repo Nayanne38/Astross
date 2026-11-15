@@ -275,3 +275,20 @@ def export_rows(region: str, start: date, end: date, cells: frozenset | None) ->
         ["date", "region", "cell_id", "lat", "lon", "harmonized_count", "modis_count", "viirs_count",
          "source_mix", "percentile", "anomaly_zscore"]]
     return out, gran
+
+
+@cached
+def provisional_from(region: str) -> tuple[date | None, bool]:
+    """First day with near-real-time (provisional) detections in the raw window, and whether that is
+    exact. raw_hotspots keeps only load.raw_hotspots_keep_days, so when NRT already starts on the first
+    day of the window the true start may be earlier (exact=False)."""
+    t = raw_hotspots
+    with db.engine().connect() as conn:
+        first_nrt = conn.execute(select(func.min(t.c.date))
+                                 .where(t.c.region == region, t.c.source_product.like("%NRT%"))).scalar()
+        first_raw = conn.execute(select(func.min(t.c.date)).where(t.c.region == region)).scalar()
+    if first_nrt is None:
+        return None, True
+    first_nrt = pd.Timestamp(first_nrt).date()
+    exact = first_raw is not None and first_nrt > pd.Timestamp(first_raw).date()
+    return first_nrt, exact

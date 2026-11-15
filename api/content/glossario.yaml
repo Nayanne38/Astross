@@ -1,0 +1,160 @@
+# Glossário servido por GET /glossary (docs/EDUCACAO_ODS.md §7).
+# Campos: termo, simples (leigo), tecnico, armadilha (equívoco comum — descreve o erro, por isso
+# fica fora do teste de termos proibidos), ods. Textos determinísticos; edite aqui, não no código.
+termos:
+  foco_de_calor:
+    termo: Foco de calor
+    simples: Ponto onde o satélite mediu calor fora do comum na superfície, no momento em que passou.
+    tecnico: Pixel classificado como anomalia térmica ativa pelo algoritmo de detecção de fogo (MODIS MOD14/MYD14, VIIRS VNP14IMG/VJ114IMG), distribuído pela NASA FIRMS.
+    armadilha: Achar que cada foco é um incêndio. Um incêndio grande gera muitos focos; um pequeno pode não gerar nenhum.
+    ods: ["4.7", "13.3"]
+  deteccao:
+    termo: Detecção
+    simples: Registro de um foco de calor feito por um satélite em um instante.
+    tecnico: Uma linha do produto FIRMS (lat, lon, data, hora UTC, satélite, FRP, confiança), após filtros de qualidade.
+    armadilha: Somar detecções de satélites diferentes como se fossem fogos diferentes.
+    ods: ["4.4"]
+  celula_dia:
+    termo: Célula-dia com detecção
+    simples: Um hexágono de cerca de 36 km² em que algum satélite viu ao menos um foco em um dia. Dez células-dia podem ser um lugar durante dez dias ou dez lugares em um só dia.
+    tecnico: Unidade de contagem do projeto (fire-cell-day). Grade H3 resolução 6; vale 1 por célula e dia, independente do número de focos; série na escala do VIIRS de referência.
+    armadilha: Ler como área queimada ou como número de incêndios.
+    ods: ["4.4", "17.18"]
+  h3:
+    termo: Hexágono H3
+    simples: Pedaço de uma grade de hexágonos quase do mesmo tamanho que cobre o mapa. Aqui cada um tem cerca de 36 km².
+    tecnico: Índice geoespacial hierárquico H3 (Uber), resolução 6, área média ~36,1 km².
+    armadilha: Achar que o hexágono inteiro pegou fogo porque está colorido.
+    ods: ["4.4"]
+  area_queimada:
+    termo: Área queimada
+    simples: Superfície que de fato queimou. É medida por outros produtos de satélite. Este sistema não mede área queimada.
+    tecnico: Mapeada por produtos específicos (ex. MODIS MCD64A1, MapBiomas Fogo), a partir de mudanças na refletância da superfície. Não é derivável de contagens de focos ativos.
+    armadilha: Converter número de focos ou de células-dia em hectares.
+    ods: ["4.7", "15.1"]
+  modis:
+    termo: MODIS
+    simples: Sensor a bordo dos satélites Terra (desde 2000) e Aqua (desde 2002). Enxerga "quadradinhos" de cerca de 1 km.
+    tecnico: Moderate Resolution Imaging Spectroradiometer; produto de fogo ativo em 1 km no nadir. Órbitas de Terra e Aqua derivam a partir de 2022.
+    armadilha: Comparar contagens do MODIS diretamente com as do VIIRS.
+    ods: ["17.18"]
+  viirs:
+    termo: VIIRS
+    simples: Sensor mais novo (dados desde 2012), que enxerga "quadradinhos" de cerca de 375 m e por isso vê fogos menores.
+    tecnico: Visible Infrared Imaging Radiometer Suite (Suomi NPP, NOAA-20, NOAA-21); banda I em 375 m. O projeto usa um satélite de referência por dia.
+    armadilha: Achar que mais focos no VIIRS quer dizer mais fogo.
+    ods: ["17.18"]
+  resolucao:
+    termo: Resolução espacial
+    simples: Tamanho do "quadradinho" que o sensor enxerga. Ele fica maior nas bordas da faixa que o satélite cobre.
+    tecnico: Tamanho do pixel no nadir (375 m VIIRS-I, 1 km MODIS), que cresce com o ângulo de visada.
+    armadilha: Tomar o ponto do mapa como a posição exata do fogo.
+    ods: ["4.4"]
+  passagem:
+    termo: Passagem do satélite
+    simples: Momento em que o satélite passa sobre a região. Isso acontece poucas vezes por dia.
+    tecnico: Satélites de órbita polar heliossíncrona; poucas passagens diárias por ponto, em horários aproximadamente fixos.
+    armadilha: Achar que o satélite vigia o tempo todo.
+    ods: ["4.4", "13.3"]
+  nrt:
+    termo: Dado provisório (tempo quase real)
+    simples: Dado que chega poucas horas depois da passagem do satélite. Ele é provisório e depois é trocado pela versão definitiva.
+    tecnico: Near Real-Time (NRT, LANCE); substituído pelo processamento padrão (SP) meses depois. Equivalência NRT→SP não verificada no fim da série.
+    armadilha: Tratar dado provisório como definitivo.
+    ods: ["17.18", "16.10"]
+  harmonizacao:
+    termo: Harmonização (calibração)
+    simples: Ajuste que coloca o MODIS na "escala" do VIIRS para formar uma série contínua desde 2003.
+    tecnico: Quantile mapping mensal das células-dia regionais MODIS→VIIRS, ajustado em 2012–2023; regressão linear como referência.
+    armadilha: Achar que a série harmonizada soma os dois satélites ou recupera fogo que nenhum viu.
+    ods: ["17.18"]
+  validacao:
+    termo: Validação
+    simples: Teste em que se esconde um ano e se verifica se o método consegue adivinhá-lo usando os outros.
+    tecnico: Validação leave-one-year-out (LOYO), com métricas diárias e mensais e diagnóstico fora da janela de calibração.
+    armadilha: Confiar no resultado sem olhar o tamanho do erro.
+    ods: ["17.18", "4.4"]
+  metricas:
+    termo: Viés, RMSE e R²
+    simples: Viés é o erro médio para cima ou para baixo. RMSE é o tamanho típico do erro. R² diz quanto da variação o ajuste consegue explicar.
+    tecnico: bias = média(previsto − observado); RMSE = raiz do erro quadrático médio; R² = 1 − SSres/SStot.
+    armadilha: Ler um R² alto como se não houvesse erro.
+    ods: ["4.4", "17.18"]
+  frp:
+    termo: Potência radiativa do fogo (FRP)
+    simples: Energia que o fogo emitia no instante da passagem, em megawatts. Indica intensidade naquele momento.
+    tecnico: Fire Radiative Power (MW) por pixel, estimado a partir da radiância no infravermelho médio.
+    armadilha: Ler como tamanho da área.
+    ods: ["4.4"]
+  confianca:
+    termo: Confiança da detecção
+    simples: Diz o quanto o sinal de calor foi claro (baixa, nominal ou alta). Aqui as de confiança baixa são descartadas.
+    tecnico: "Classe de confiança FIRMS (VIIRS l/n/h; MODIS 0–100 agrupado em <30, 30–79, ≥80). Filtro mínimo: nominal."
+    armadilha: Aceitar todas as detecções sem olhar a confiança.
+    ods: ["4.4", "17.18"]
+  percentil:
+    termo: Percentil
+    simples: Posição de um valor entre os anos comparados. Percentil 90 quer dizer maior que 9 de cada 10 anos comparados.
+    tecnico: Posição da média diária do mês entre o mesmo mês nos outros anos completos (empates contam meio); exige ao menos 3 anos.
+    armadilha: Achar que percentil 90 quer dizer que 90% da região teve fogo. Com poucos anos, percentil 0 só quer dizer o menor daqueles anos.
+    ods: ["4.4"]
+  zscore:
+    termo: Escore z
+    simples: Quantas "distâncias típicas" um valor está acima ou abaixo da média.
+    tecnico: (x − média) / desvio-padrão amostral do mesmo mês nos outros anos. Engana com dados assimétricos, por isso a categoria usa o percentil.
+    armadilha: Usar com poucos anos e dados muito desiguais.
+    ods: ["4.4"]
+  anomalia:
+    termo: Faixa típica e anomalia
+    simples: O quanto um mês se afasta do que costuma acontecer no mesmo mês em outros anos.
+    tecnico: "Categoria pelo percentil: <10, <33, 33–67, ≤90, >90 (muito abaixo … muito acima)."
+    armadilha: Tomar "acima do que costuma ocorrer" como prova de crime ou desastre.
+    ods: ["13.3", "4.7"]
+  mes_parcial:
+    termo: Mês parcial
+    simples: Mês ainda em andamento ou com dias sem dado. Ele é comparado pela média por dia, não pelo total.
+    tecnico: obs_days < days_in_month; a comparação usa daily_mean = total harmonizado / dias observados.
+    armadilha: Comparar o total de um mês incompleto com totais de meses completos.
+    ods: ["4.4"]
+  probabilidade:
+    termo: Probabilidade
+    simples: Chance estimada de algo acontecer. Só pode ser lida como "3 em cada 10" se o modelo tiver sido testado e estiver bem ajustado.
+    tecnico: Probabilidade prevista por modelo; interpretação frequentista exige calibração verificada (diagrama de confiabilidade, Brier).
+    armadilha: Ler "alto" como "vai acontecer".
+    ods: ["4.4", "13.3"]
+  taxa_base:
+    termo: Taxa histórica
+    simples: Com que frequência algo costuma acontecer naquela época do ano e naquele lugar.
+    tecnico: Climatologia; baseline mínimo contra o qual uma previsão deve ser comparada.
+    armadilha: Julgar uma previsão sem saber o que é comum.
+    ods: ["4.4"]
+  omissao:
+    termo: Nuvens e fumaça
+    simples: Escondem focos de todos os satélites. Nenhuma detecção registrada não garante que não houve fogo.
+    tecnico: Omissão por cobertura de nuvens, fumaça espessa, copas densas e fogos pequenos ou fora do horário de passagem.
+    armadilha: Ler ausência de detecção como ausência de fogo.
+    ods: ["4.7", "17.18"]
+  correlacao_causa:
+    termo: Correlação não é causa
+    simples: Duas coisas que variam juntas não mostram, sozinhas, que uma provoca a outra.
+    tecnico: Associação estatística não identifica mecanismo causal; requer desenho de estudo e dados adicionais.
+    armadilha: Atribuir focos à seca, ao agronegócio ou a uma pessoa só porque aparecem juntos no mapa.
+    ods: ["4.7"]
+  sintetico:
+    termo: Amostra sintética
+    simples: Dados inventados só para demonstração e testes. Não representam queimadas reais.
+    tecnico: data/sample — gerada por scripts/make_sample.py, rotulada em todo o sistema.
+    armadilha: Usar a amostra como se fosse resultado real.
+    ods: ["17.18"]
+  cerrado_fogo:
+    termo: Cerrado e fogo
+    simples: Muitas plantas do Cerrado rebrotam depois do fogo, e existe queima de manejo legítima. O problema é o fogo frequente, fora de época ou ligado ao desmatamento.
+    tecnico: Savana tropical com regime de fogo historicamente natural e antrópico; alterações de frequência, sazonalidade e intensidade ameaçam a biodiversidade.
+    armadilha: Achar que todo foco é crime, ou que todo fogo é natural.
+    ods: ["15.1", "13.3"]
+  mif:
+    termo: Manejo Integrado do Fogo
+    simples: Queimas planejadas, em geral no início da seca, para reduzir o material que pega fogo e evitar grandes incêndios.
+    tecnico: Política de manejo praticada por órgãos como ICMBio e Prevfogo/Ibama e por comunidades tradicionais.
+    armadilha: Confundir queima planejada com incêndio.
+    ods: ["15.1", "13.3"]

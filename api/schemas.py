@@ -8,6 +8,104 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+# ------------------------------------------------------------------ educational layer (learn)
+# docs/EDUCACAO_ODS.md §10.2. Deterministic pt-BR texts built by api/education.py.
+Nivel = Literal["simples", "estudante", "tecnico"]
+View = Literal["calendario", "resumo", "mapa", "comparacao", "harmonizacao", "recentes", "previsao"]
+CaveatCode = Literal["sintetico", "nrt", "era_modis", "custom_pre2012", "parcial", "n_ref_pequeno",
+                     "truncado", "previsao_indisponivel", "mensal_aproximado"]
+
+
+class LearnCard(BaseModel):
+    id: str = Field(description="stable id, e.g. 'mapa.concentracao.alta'")
+    slot: Literal["situacao", "cautela", "contexto"]
+    gatilho: str = Field(description="human-readable trigger rule")
+    titulo: str
+    texto: str
+    dica_professor: Optional[str] = None
+
+
+class Caveat(BaseModel):
+    codigo: CaveatCode
+    texto: str
+
+
+class GuidedQuestion(BaseModel):
+    tipo: Literal["ver", "pensar", "perguntar", "limite_do_dado", "cidadania"]
+    texto: str
+
+
+class Provenance(BaseModel):
+    fonte: str
+    atualizado_em: Optional[str] = Field(None, description="finished_at of the last successful ETL run")
+    provisional_from: Optional[date] = Field(None, description="first day of near-real-time (provisional) data seen")
+    provisional_exact: bool = Field(False, description="false: provisional data may start before provisional_from")
+    eras: list[str]
+    is_synthetic: bool
+    metodo: Optional[str] = None
+
+
+class Accessible(BaseModel):
+    alt_curto: str = Field(description="<=150 chars, for aria-label")
+    descricao_longa: str
+    falavel: str = Field(description="screen-reader friendly: no symbols like −, ≥, ~, ×")
+    destaques: list[str] = []
+
+
+class Learn(BaseModel):
+    version: str = "learn-1"
+    view: View
+    nivel: Nivel
+    cards: list[LearnCard]
+    nao_diz: list[str] = Field(min_length=1, description="what this data does NOT say (mandatory)")
+    avisos: list[Caveat]
+    perguntas: list[GuidedQuestion]
+    procedencia: Provenance
+    acessivel: Accessible
+    glossario: list[str] = Field(description="ids in GET /glossary")
+    ods: list[str] = Field(description="UN SDG targets this view contributes to")
+
+
+class GlossaryTerm(BaseModel):
+    id: str
+    termo: str
+    definicao: str = Field(description="definition at the requested level")
+    simples: str
+    tecnico: str
+    armadilha: str
+    ods: list[str]
+
+
+class PathStep(BaseModel):
+    ordem: int
+    objetivo: str
+    view: str
+    endpoint: str
+    params: dict
+    card_id: str
+    pergunta_saida: str
+
+
+class LearningPath(BaseModel):
+    id: str
+    titulo: str
+    publico: str
+    ods: list[str]
+    bncc: list[str]
+    bncc_status: str = "a verificar por docente"
+    bloqueada: bool
+    motivo_bloqueio: Optional[str] = None
+    etapas: list[PathStep]
+
+
+class ProvenanceResponse(BaseModel):
+    region: str
+    procedencia: Provenance
+    resumo: str
+    limitacoes: list[str]
+    limitacoes_simples: list[str]
+
+
 class Region(BaseModel):
     key: str
     name: str
@@ -49,6 +147,7 @@ class CalendarResponse(BaseModel):
     end: date
     cells: list[CalendarCell]
     current: Optional[CalendarCell] = None
+    learn: Optional[Learn] = None
 
 
 class Anomaly(BaseModel):
@@ -61,7 +160,13 @@ class Anomaly(BaseModel):
     obs_days: int
     category: Literal["muito_abaixo", "abaixo", "normal", "acima", "muito_acima", "indisponivel"] = Field(
         description="from percentile: <10, <33, 33-67, <=90, >90")
-    sentence: str = Field(description="plain-language pt-BR explanation")
+    sentence: str = Field(description="pt-BR explanation (technical level, kept for compatibility)")
+    sentences: dict[str, str] = Field(default_factory=dict, description="same text per level: simples/estudante/tecnico")
+    daily_mean: Optional[float] = None
+    n_ref: int = Field(0, description="complete years of the same month used as reference")
+    ref_year_min: Optional[int] = None
+    ref_year_max: Optional[int] = None
+    is_provisional: bool = Field(False, description="month includes near-real-time (provisional) days")
 
 
 class RiskSummary(BaseModel):
@@ -86,6 +191,7 @@ class Summary(BaseModel):
     current: Optional[Anomaly] = None
     peak: Optional[CalendarCell] = None
     risk_next_7_days: RiskSummary
+    learn: Optional[Learn] = None
 
 
 class HexCell(BaseModel):
@@ -107,7 +213,11 @@ class HexGridResponse(BaseModel):
     granularity: Literal["day", "month"]
     resolution: int
     max_value: float
+    n_cells: int = Field(0, description="cells with value > 0 (before limit)")
+    total_value: float = 0.0
+    top10_share: Optional[float] = Field(None, description="share of total value in the top 10% cells (n_cells>=10)")
     cells: list[HexCell]
+    learn: Optional[Learn] = None
 
 
 class ComparisonPoint(BaseModel):
@@ -118,11 +228,13 @@ class ComparisonPoint(BaseModel):
     harmonized: Optional[float]
     modis_hotspots: int
     viirs_hotspots: int
+    viirs_modis_ratio: Optional[float] = Field(None, description="viirs_cell_days / modis_cell_days")
 
 
 class ComparisonResponse(BaseModel):
     region: str
     series: list[ComparisonPoint]
+    learn: Optional[Learn] = None
 
 
 class HarmonizationPoint(BaseModel):
@@ -155,6 +267,8 @@ class HarmonizationResponse(BaseModel):
     series: list[HarmonizationPoint]
     metrics: list[CalibrationMetric]
     limitations: list[str]
+    limitations_simple: list[str] = []
+    learn: Optional[Learn] = None
 
 
 class RecentDay(BaseModel):
@@ -181,6 +295,8 @@ class RecentResponse(BaseModel):
     days: list[RecentDay]
     detections: list[Detection]
     truncated: bool
+    share_high_confidence: Optional[float] = None
+    learn: Optional[Learn] = None
 
 
 class ForecastCell(BaseModel):
@@ -201,6 +317,7 @@ class ForecastResponse(BaseModel):
     cells: list[ForecastCell]
     metrics: Optional[dict] = Field(None, description="evaluation metrics vs baselines (Phase 5)")
     disclaimer: str
+    learn: Optional[Learn] = None
 
 
 class Health(BaseModel):

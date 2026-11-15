@@ -119,3 +119,70 @@ def test_errors_are_actionable(client):
     assert client.get("/calendar?region=nope").status_code == 404
     assert client.get(f"/calendar?{R}&bbox=1,2").status_code == 422
     assert client.get(f"/calendar?{R}&start=2020-01-01&end=2019-01-01").status_code == 422
+
+
+# ------------------------------------------------------------------ educational layer
+LEARN_URLS = [f"/calendar?{R}&start=2015-01-01&end=2016-12-31", f"/summary?{R}",
+              f"/hexgrid?{R}&boundary=false", f"/comparison?{R}&start=2010-01-01&end=2016-12-31",
+              f"/harmonization?{R}", f"/recent?{R}&days=5", f"/forecast?{R}"]
+
+
+def test_every_view_has_learn_block(client):
+    from api.education import violations
+    ids = {t["id"] for t in client.get("/glossary").json()}
+    for url in LEARN_URLS:
+        j = client.get(url).json()
+        L = j["learn"]
+        assert L and L["cards"] and L["nao_diz"], url
+        assert any(a["codigo"] == "sintetico" for a in L["avisos"]), url        # synthetic always labelled
+        assert L["procedencia"]["is_synthetic"] is True and "FIRMS" in L["procedencia"]["fonte"]
+        assert set(L["glossario"]) <= ids, url
+        assert len(L["acessivel"]["alt_curto"]) <= 150
+        texts = [c["texto"] for c in L["cards"]] + L["nao_diz"] + [a["texto"] for a in L["avisos"]]
+        assert not [v for t in texts for v in violations(t)], url
+        assert client.get(url + "&learn=false").json()["learn"] is None
+
+
+def test_learn_levels_and_synthetic_on_custom_area(client):
+    s = client.get(f"/summary?{R}&nivel=simples").json()["learn"]["cards"][0]["texto"]
+    t = client.get(f"/summary?{R}&nivel=tecnico").json()["learn"]["cards"][0]["texto"]
+    assert s != t and "percentil" not in s
+    cur = client.get(f"/summary?{R}").json()["current"]
+    assert set(cur["sentences"]) == {"simples", "estudante", "tecnico"} and cur["n_ref"] >= 3
+    assert str(cur["n_ref"]) in cur["sentences"]["simples"]
+    custom = client.get(f"/summary?{R}&bbox=-48.5,-10.5,-47.5,-9.5").json()["learn"]
+    assert any(a["codigo"] == "sintetico" for a in custom["avisos"])
+    assert client.get(f"/summary?{R}&nivel=xx").status_code == 422
+
+
+def test_numbers_in_text_match_payload(client):
+    h = client.get(f"/hexgrid?{R}&start=2015-08-01&end=2015-09-30&boundary=false").json()
+    first = h["learn"]["cards"][0]
+    assert first["id"] == "mapa.resumo" and str(h["n_cells"]) in first["texto"]
+    assert h["n_cells"] >= len(h["cells"]) and h["total_value"] > 0
+    r = client.get(f"/recent?{R}&days=5").json()
+    assert str(len(r["detections"])) in r["learn"]["cards"][0]["texto"]
+
+
+def test_unit_and_risk_wording(client):
+    unit = client.get(f"/calendar?{R}").json()["unit"]
+    assert "células-dia" in unit and "detecção de foco de calor" in unit and "com fogo" not in unit
+    f = client.get(f"/forecast?{R}").json()
+    assert [c["id"] for c in f["learn"]["cards"]] == ["prev.indisponivel"]
+
+
+def test_glossary_paths_provenance(client):
+    g = client.get("/glossary").json()
+    assert len(g) >= 20 and all(t["armadilha"] for t in g)
+    assert client.get("/glossary/area_queimada").json()["termo"] == "Área queimada"
+    assert client.get("/glossary/nope").status_code == 404
+    tec = client.get("/glossary/percentil?nivel=tecnico").json()
+    assert tec["definicao"] == tec["tecnico"]
+    p = client.get(f"/learn/paths?{R}").json()
+    assert {x["id"] for x in p} >= {"t1", "t2", "t3", "t4"}
+    assert client.get(f"/learn/paths/t1?{R}").json()["etapas"][0]["params"]["region"] == "sample_tocantins"
+    pv = client.get(f"/provenance?{R}").json()
+    assert pv["procedencia"]["is_synthetic"] and "sintética" in pv["resumo"]
+    assert len(pv["limitacoes"]) == len(pv["limitacoes_simples"]) >= 8
+    h = client.get(f"/harmonization?{R}").json()
+    assert len(h["limitations_simple"]) == len(h["limitations"])

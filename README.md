@@ -26,3 +26,14 @@ Uses NASA FIRMS. Put your MAP_KEY in `.env` (`FIRMS_MAP_KEY`); never commit it.
 
 Este projeto usa dados do NASA Fire Information for Resource Management System (FIRMS),
 parte do NASA LANCE e do ESDIS — https://earthdata.nasa.gov/firms
+
+## Educação e ODS
+Cada visualização da API traz um bloco `learn`: textos explicativos determinísticos em pt-BR, com três
+níveis de linguagem, o bloco obrigatório "o que este dado NÃO diz", avisos de procedência, perguntas
+guiadas e texto acessível. Há ainda `GET /glossary`, `GET /learn/paths` e `GET /provenance`.
+Para quais metas da ONU o projeto contribui e o que ele não afirma: [docs/ODS.md](docs/ODS.md).
+Diagnóstico completo do conselho de especialistas: [docs/EDUCACAO_ODS.md](docs/EDUCACAO_ODS.md).
+Para rodar o conselho de novo, use o workflow salvo em `.claude/workflows/conselho-ods-educacao.js`.
+
+## License
+Code: MIT ([LICENSE](LICENSE)). Derived data and educational content: CC BY 4.0 ([DATA_LICENSE.md](DATA_LICENSE.md)).

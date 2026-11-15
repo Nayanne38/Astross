@@ -19,6 +19,7 @@ class Region:
     name: str
     bbox: tuple[float, float, float, float]  # west, south, east, north
     timezone_offset_hours: int = -3
+    synthetic: bool = False
 
     @property
     def bbox_str(self) -> str:
@@ -38,7 +39,8 @@ def regions() -> dict[str, Region]:
         raw = yaml.safe_load(f)["regions"]
     return {
         k: Region(key=k, name=v["name"], bbox=tuple(v["bbox"]),
-                  timezone_offset_hours=v.get("timezone_offset_hours", -3))
+                  timezone_offset_hours=v.get("timezone_offset_hours", -3),
+                  synthetic=bool(v.get("synthetic", False)))
         for k, v in raw.items()
     }
 
