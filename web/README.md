@@ -1,17 +1,36 @@
-# Web (Phase 4)
-Next.js App Router + TypeScript + Tailwind + shadcn/ui + Recharts + react-leaflet.
-If a v0 export exists, drop it here and keep `lib/fire-data.ts` names/interfaces.
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Camada educativa (`learn`), obrigatória em cada visualização
-Toda resposta de visualização da API traz `learn` (ver `api/schemas.py`, classe `Learn`, e `docs/EDUCACAO_ODS.md` §10.2).
-- Painel **"Entenda esta visualização"** ao lado de cada gráfico ou mapa: `learn.cards` (agrupados por `slot`:
-  situação, cautela, contexto) e `learn.avisos`.
-- Bloco **"O que este dado NÃO diz"** (`learn.nao_diz`): sempre visível, nunca escondido atrás de um clique.
-- Seletor de nível: `?nivel=simples|estudante|tecnico` (padrão `simples`). `dica_professor` só aparece no modo professor.
-- Acessibilidade: `learn.acessivel.alt_curto` vai em `aria-label`; `descricao_longa` em `aria-describedby`/`<details>`;
-  `falavel` para leitor de tela.
-- Termos de `learn.glossario` viram tooltips ligados a `GET /glossary/{id}`.
-- Cartão fixo "Foco de calor não é área queimada"; meses parciais com hachura (nunca só cor);
-  paletas seguras para daltonismo (azul↔laranja para anomalias, nunca verde↔vermelho).
-- Requisitos: foco visível, alvos ≥ 24×24 px, sem animação automática, `prefers-reduced-motion`,
-  link "pular mapa", página inicial < 500 KB.
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

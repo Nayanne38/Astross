@@ -44,6 +44,8 @@ app = FastAPI(title="Calendário de Queimadas API", version="0.4.0",
               description="Harmonized MODIS/VIIRS active-fire data (NASA FIRMS). " + ATTRIBUTION)
 app.add_middleware(CORSMiddleware,
                    allow_origins=[o.strip() for o in os.getenv("API_CORS_ORIGINS", "http://localhost:3000").split(",")],
+                   # local dev on any port (Next picks 3001+ when 3000 is busy) and via 127.0.0.1
+                   allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
                    allow_methods=["GET"], allow_headers=["*"],
                    expose_headers=["Content-Disposition"])
 app.add_middleware(GZipMiddleware, minimum_size=2000)
