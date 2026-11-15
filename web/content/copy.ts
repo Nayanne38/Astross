@@ -2,7 +2,7 @@
 // Wording rule: "detecção de calor / foco de calor", never "incêndio confirmado".
 
 export const copy = {
-  brand: "FIREWATCH",
+  brand: "FIRETRACK",
   skipLink: "Pular para o conteúdo",
   nav: [
     { href: "/", label: "Mapa de focos" },

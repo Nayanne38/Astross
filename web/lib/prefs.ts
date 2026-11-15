@@ -3,7 +3,7 @@
 
 export interface Prefs { fontStep: number; highContrast: boolean; reduceMotion: boolean }
 export const FONT_STEPS = [1, 1.125, 1.25, 1.4]; // A− / A+ (4 steps)
-const KEY = "firewatch.prefs.v1";
+const KEY = "firetrack.prefs.v1";
 const DEFAULT: Prefs = { fontStep: 0, highContrast: false, reduceMotion: false };
 
 let current: Prefs = DEFAULT;
