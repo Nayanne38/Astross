@@ -265,6 +265,11 @@ def export_rows(region: str, start: date, end: date, cells: frozenset | None) ->
         gran = "month"
     if cells is not None:
         df = df[df.h3_cell.isin(cells)]
+    # Export labels "who detected" from the raw counts (the stored mix only looks at the reference VIIRS
+    # satellite, so a cell seen only by another VIIRS satellite would read "MODIS" with modis_count=0).
+    if len(df):
+        df["source_mix"] = np.select([(df.modis_count > 0) & (df.viirs_count > 0), df.viirs_count > 0],
+                                     ["BOTH", "VIIRS"], "MODIS")
     df["year"], df["month"] = df.date.dt.year, df.date.dt.month
     df = df.merge(mon, on=["year", "month"], how="left")
     geo = cell_geo(df.h3_cell.unique(), False).rename(columns={"cell_id": "h3_cell"})
