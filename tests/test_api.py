@@ -102,6 +102,17 @@ def test_recent_and_forecast_empty(client):
     assert f["available"] is False and "não certeza" in f["disclaimer"]
 
 
+def test_recent_area_filter_before_limit(client):
+    full = client.get(f"/recent?{R}&days=60&limit=100000&learn=false").json()["detections"]
+    assert full and "daynight" in full[0]
+    # a small box around the OLDEST detection: with the limit applied before the area filter it would vanish
+    o = full[-1]
+    box = f"{o['lon']-0.05},{o['lat']-0.05},{o['lon']+0.05},{o['lat']+0.05}"
+    j = client.get(f"/recent?{R}&days=60&limit=5&learn=false&bbox={box}").json()
+    assert len(j["detections"]) > 0
+    assert all(abs(d["lat"] - o["lat"]) < 0.2 and abs(d["lon"] - o["lon"]) < 0.2 for d in j["detections"])
+
+
 def test_export_csv_columns(client):
     r = client.get(f"/export.csv?{R}&start=2015-08-01&end=2015-08-31")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")

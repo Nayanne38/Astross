@@ -1,225 +1,485 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
-import { cellToParent, latLngToCell } from "h3-js";
-import { useApi, useAppState, type MapMode } from "@/components/app-state";
-import { ErrorBox, Panel, Pill, StatCard, Toggle } from "@/components/panel";
-import type { MapHex, MapPoint } from "@/components/hex-map";
-import { brDate, int, num, signedPct } from "@/lib/format";
+import Link from "next/link";
+import { useCallback, useMemo, useRef, useState } from "react";
+import type L from "leaflet";
+import { cellToBoundary, cellToParent } from "h3-js";
+import { Crosshair, Download, Expand, Layers, LocateFixed, PenLine, RotateCcw, Shrink, X } from "lucide-react";
+import { useApi, useAppState } from "@/components/app-state";
+import { EmptyState, ErrorBox, Loading, Pill, StatCard } from "@/components/panel";
+import type { Basemap, DrawMode, MapHex, MapPoint } from "@/components/hex-map";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { copy } from "@/content/copy";
+import { csvUrl } from "@/lib/api";
+import { MESES, brDate, cap, int, num, signedPct } from "@/lib/format";
 import { classColors, classOf, quantileBreaks } from "@/lib/palettes";
-import type { Detection, ForecastResponse, HexGridResponse, RecentResponse, Summary } from "@/lib/types";
+import { parseArea, type Layer } from "@/lib/filters";
+import {
+  AREA_KM2, FRP_ORDER, aggregateCells, anomalyBadge, cellPolygonParam, detectionCategories, displayRes, frpClass,
+  frpQuartiles, frpRadius, matchesCategory, type AggCell,
+} from "@/lib/map-layers";
+import { cn } from "@/lib/utils";
+import type { ForecastResponse, HexGridResponse, RecentResponse, Summary } from "@/lib/types";
+
+const M = copy.map;
+const K = copy.cards;
+const HEX_CAP = 3000;
+const POINT_CAP = 5000;
+const POINT_DAYS = 60; // API limit for individual detections
+const t = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ""));
+const ring = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+const toolBtn = cn("grid size-9 place-items-center rounded-md border border-border bg-panel/95 text-foreground shadow hover:bg-accent pointer-coarse:size-11", ring);
+const menuItem = cn("rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-40 pointer-coarse:min-h-11", ring);
 
 const HexMap = dynamic(() => import("@/components/hex-map"), {
   ssr: false,
-  loading: () => <div className="grid h-[520px] place-items-center text-sm text-muted-foreground">Carregando mapa…</div>,
+  loading: () => <div className="grid h-full place-items-center text-sm text-muted-foreground">{copy.states.loading} mapa…</div>,
 });
 
-const CLASS_LABEL: Record<string, string> = { baixo: "Baixo", moderado: "Moderado", alto: "Alto", muito_alto: "Muito alto" };
-type SensorCat = "todos" | "modis" | "viirs" | "ambos";
-const CAPS = [1000, 3000, 6000, 10000];
-const FRP_CLASSES = ["Baixa", "Média", "Alta", "Muito alta"];
-// Display resolution by zoom: res-6 cells (~36 km²) are 1–2 px wide when the whole region is visible.
-const AREA_KM2: Record<number, string> = { 4: "1.770", 5: "253", 6: "36" };
-function displayRes(zoom: number) { return zoom < 6.5 ? 4 : zoom < 8 ? 5 : 6; }
-
-/** Per-sensor FRP quartiles: MODIS (1 km) and VIIRS (375 m) FRP are not on the same scale. */
-function frpQuartiles(det: Detection[]) {
-  const out: Record<string, number[]> = {};
-  for (const fam of ["MODIS", "VIIRS"]) {
-    const v = det.filter((d) => d.sensor_family === fam && d.frp != null).map((d) => d.frp as number).sort((a, b) => a - b);
-    out[fam] = v.length ? [0.25, 0.5, 0.75].map((q) => v[Math.min(v.length - 1, Math.floor(q * v.length))]) : [];
-  }
-  return out;
+function badgeTone(b: string) {
+  return b === "Acima" ? "bg-fire/20 text-fire" : b === "Abaixo" ? "bg-sky-400/15 text-sky-300" : "bg-brand/15 text-brand";
+}
+function dominant(c: { modis: number; viirs: number }) {
+  return c.modis === c.viirs ? "empate" : c.modis > c.viirs ? "MODIS" : "VIIRS";
 }
 
 export function HomeView() {
   const s = useAppState();
-  const { region, range, palette, classes, invert, mapMode, setMapMode } = s;
-  const [sensor, setSensor] = useState<SensorCat>("todos");
-  const [cap, setCap] = useState(3000);
-  const [frpOn, setFrpOn] = useState([true, true, true, true]);
+  const { region, range, area, palette, classes, invert, committed: f, setFilters } = s;
   const [zoom, setZoom] = useState(5);
+  const [basemap, setBasemap] = useState<Basemap>("escuro");
+  const [tileFailed, setTileFailed] = useState(false);
+  const [drawMode, setDrawMode] = useState<DrawMode>(null);
+  const [typedOpen, setTypedOpen] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
+  const [asTable, setAsTable] = useState(false);
+  const [geoMsg, setGeoMsg] = useState("");
+  const [fullscreen, setFullscreen] = useState(false);
+  const mapRef = useRef<L.Map | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const res = displayRes(zoom);
+  const layer = s.filters.layer;
 
   const start = range.start ?? region?.data_start ?? undefined;
   const end = range.end ?? region?.data_end ?? undefined;
   const days = start && end ? Math.round((Date.parse(end) - Date.parse(start)) / 864e5) + 1 : 9999;
-  const pointDays = Math.min(days, 60);
+  const pointDays = Math.min(days, POINT_DAYS);
+  const base = { region: region?.key, ...area };
 
-  const sum = useApi<Summary>(region ? "/summary" : null, { region: region?.key, start, end, learn: false });
-  const hex = useApi<HexGridResponse>(region && mapMode === "densidade" ? "/hexgrid" : null,
-    { region: region?.key, start, end, boundary: false, limit: 100000, learn: false });
-  const rec = useApi<RecentResponse>(region && mapMode === "focos" ? "/recent" : null,
-    { region: region?.key, days: pointDays, limit: 30000, learn: false });
-  const fc = useApi<ForecastResponse>(region ? "/forecast" : null,
-    { region: region?.key, limit: mapMode === "risco" ? 60000 : 1, learn: false, boundary: false });
+  const sum = useApi<Summary>(region ? "/summary" : null, { ...base, start, end, learn: false });
+  const hex = useApi<HexGridResponse>(region && layer === "densidade" ? "/hexgrid" : null,
+    { ...base, start, end, boundary: false, limit: 100000, learn: false });
+  const rec = useApi<RecentResponse>(region && layer === "focos" ? "/recent" : null,
+    { ...base, days: pointDays, limit: 30000, learn: false });
+  const riskOn = !!sum.data?.risk_next_7_days?.available;
+  const fc = useApi<ForecastResponse>(region && layer === "risco" && riskOn ? "/forecast" : null,
+    { ...base, limit: 60000, learn: false, boundary: false, fallback: false });
 
-  // ---------------- density layer
+  // ------------------------------------------------ density layer (memoized: rebuilt only when its inputs change)
   const density = useMemo(() => {
-    const cells = (hex.data?.cells ?? []).filter((c) =>
-      sensor === "todos" ? true : sensor === "modis" ? c.modis_count > 0 && c.viirs_count === 0
-        : sensor === "viirs" ? c.viirs_count > 0 && c.modis_count === 0 : c.modis_count > 0 && c.viirs_count > 0);
-    const agg = new Map<string, { value: number; modis: number; viirs: number; n: number }>();
-    for (const c of cells) {
-      const k = res === 6 ? c.cell_id : cellToParent(c.cell_id, res);
-      const a = agg.get(k) ?? { value: 0, modis: 0, viirs: 0, n: 0 };
-      a.value += c.value; a.modis += c.modis_count; a.viirs += c.viirs_count; a.n += 1;
-      agg.set(k, a);
-    }
-    const all = [...agg.entries()].sort((x, y) => y[1].value - x[1].value);
-    const drawn = all.slice(0, cap);
-    const breaks = quantileBreaks(drawn.map(([, a]) => a.value), classes);
+    const all = aggregateCells(hex.data?.cells ?? [], res, f.sensor, f.category);
+    const drawn = all.slice(0, HEX_CAP);
+    const breaks = quantileBreaks(drawn.map((c) => c.value), classes);
     const colors = classColors(palette, classes, invert);
     const gran = hex.data?.granularity;
-    const hexes: MapHex[] = drawn.map(([id, a]) => ({
-      id, color: colors[classOf(a.value, breaks)],
-      tooltip: `<b>${num(a.value, gran === "day" ? 0 : 1)} células-dia com detecção</b>${res < 6 ? `<br/>soma de ${a.n} hexágonos de ~36 km² neste hexágono de ~${AREA_KM2[res]} km²` : ""}<br/>MODIS: ${int(a.modis)} · VIIRS: ${int(a.viirs)} detecções${gran === "month" ? "<br/>totais mensais" : ""}`,
-    }));
-    return { hexes, breaks, colors, matched: all.length, drawn: drawn.length, sourceCells: cells.length };
-  }, [hex.data, sensor, cap, classes, palette, invert, res]);
+    const T = M.tooltip;
+    const hexes: MapHex[] = drawn.map((c) => {
+      const k = classOf(c.value, breaks);
+      const cat = c.modis > 0 && c.viirs > 0 ? T.category.coincidentes : c.modis > 0 ? T.category.modis : T.category.viirs;
+      return {
+        id: c.id, color: colors[k], opacity: 0.55 + 0.4 * (k / Math.max(1, classes - 1)),
+        tooltip: `<b>${num(c.value, gran === "day" || f.sensor !== "todos" ? 0 : 1)} ${M.densityUnit[f.sensor]}</b>`
+          + `<br/>${t(T.percentile, { p: c.percentile })}<br/>${T.dominant}: ${dominant(c)} (MODIS ${int(c.modis)} · VIIRS ${int(c.viirs)})`
+          + `<br/>${cat}${res < 6 ? `<br/>${t(T.sum, { n: c.n })}` : ""}`,
+      };
+    });
+    return { all, drawn, hexes, breaks, colors };
+  }, [hex.data, res, f.sensor, f.category, classes, palette, invert]);
 
-  // ---------------- points layer
-  const pointsLayer = useMemo(() => {
+  // ------------------------------------------------ points layer (client-side filters, no refetch)
+  const pointsData = useMemo(() => {
     const det = rec.data?.detections ?? [];
-    const q = frpQuartiles(det);
+    return { det, q: frpQuartiles(det), cats: detectionCategories(det) };
+  }, [rec.data]);
+  const points = useMemo(() => {
+    const { det, q, cats } = pointsData;
     const colors = classColors(palette, 4, invert);
-    let pts = det;
-    if (sensor !== "todos") {
-      if (sensor === "ambos") {
-        const fams = new Map<string, Set<string>>();
-        const cellOf = det.map((d) => latLngToCell(d.lat, d.lon, 6));
-        det.forEach((d, i) => { const k = cellOf[i]; if (!fams.has(k)) fams.set(k, new Set()); fams.get(k)!.add(d.sensor_family); });
-        pts = det.filter((_, i) => fams.get(cellOf[i])!.size === 2);
-      } else pts = det.filter((d) => d.sensor_family === (sensor === "modis" ? "MODIS" : "VIIRS"));
-    }
-    const classed = pts.map((d) => ({ d, k: d.frp == null || !q[d.sensor_family].length ? -1 : classOf(d.frp, q[d.sensor_family]) }));
-    const shown = classed.filter((x) => x.k === -1 ? frpOn.every(Boolean) : frpOn[x.k]).slice(0, cap);
-    const points: MapPoint[] = shown.map(({ d, k }) => ({
-      lat: d.lat, lon: d.lon, color: k === -1 ? "#93a7b1" : colors[k], stroke: d.sensor_family === "MODIS" ? "#ffffff" : "#0e1418",
-      tooltip: `<b>${d.satellite}</b> (${d.sensor_family}) · ${brDate(d.date)} ${String(d.time_utc).padStart(4, "0").replace(/(\d\d)(\d\d)/, "$1:$2")} UTC<br/>Potência radiativa: ${d.frp != null ? num(d.frp) + " MW" : "—"} (${k >= 0 ? FRP_CLASSES[k].toLowerCase() : "sem FRP"} para o ${d.sensor_family})<br/>Confiança: ${d.confidence_class}`,
+    const sel = det.map((d, i) => ({ d, cat: cats[i], cls: frpClass(d.frp, q[d.sensor_family as "MODIS" | "VIIRS"] ?? []) }))
+      .filter(({ d, cat, cls }) =>
+        (f.sensor === "todos" || d.sensor_family.toLowerCase() === f.sensor)
+        && matchesCategory(cat, f.category)
+        && (f.frp.length === 0 || (cls !== null && f.frp.includes(cls))))
+      .sort((a, b) => (b.d.frp ?? 0) - (a.d.frp ?? 0));
+    const T = M.tooltip;
+    const pts: MapPoint[] = sel.slice(0, POINT_CAP).map(({ d, cat, cls }) => ({
+      lat: d.lat, lon: d.lon, radius: frpRadius(d.frp), color: colors[cls ? FRP_ORDER.indexOf(cls) : 0],
+      tooltip: `<b>${brDate(d.date)} · ${String(d.time_utc).padStart(4, "0").replace(/(\d\d)(\d\d)/, "$1:$2")} UTC</b>`
+        + `<br/>${d.satellite} (${d.sensor_family})${d.daynight ? ` · ${d.daynight === "D" ? T.day : T.night}` : ""}`
+        + `<br/>FRP ${d.frp == null ? "—" : num(d.frp, 1) + " MW"}${cls ? ` (${copy.sidebar.frpClasses[cls].toLowerCase()} p/ ${d.sensor_family})` : ""}`
+        + `<br/>${T.confidence}: ${d.confidence_class} · ${T.category[cat]}<br/><i>${M.pointDisclaimer}</i>`,
     }));
-    return { points, q, colors, matched: classed.length, total: det.length };
-  }, [rec.data, sensor, frpOn, cap, palette, invert]);
+    return { pts, total: sel.length, colors };
+  }, [pointsData, f.sensor, f.category, f.frp, palette, invert]);
 
-  // ---------------- climatology layer
+  // ------------------------------------------------ risk layer (only when a model forecast exists)
   const risk = useMemo(() => {
-    const fb = fc.data?.fallback;
+    const order = ["baixo", "moderado", "alto", "muito_alto"];
     const colors = classColors(palette, 4, invert);
-    const idx: Record<string, number> = { baixo: 0, moderado: 1, alto: 2, muito_alto: 3 };
-    if (mapMode !== "risco" || !fb) return { hexes: [] as MapHex[], colors, total: 0 };
-    const cls = (f: number) => (f >= fb.thresholds.muito_alto ? "muito_alto" : f >= fb.thresholds.alto ? "alto" : f >= fb.thresholds.moderado ? "moderado" : "baixo");
-    const agg = new Map<string, number>();
-    for (const c of fb.cells) {
+    // aggregate to the display resolution keeping the highest probability (and its class) per parent cell
+    const agg = new Map<string, { p: number; cls: string; n: number }>();
+    if (layer === "risco") for (const c of fc.data?.cells ?? []) {
       const k = res === 6 ? c.cell_id : cellToParent(c.cell_id, res);
-      agg.set(k, Math.max(agg.get(k) ?? 0, c.frequency));
+      const a = agg.get(k);
+      if (!a) agg.set(k, { p: c.probability, cls: c.risk_class, n: 1 });
+      else { a.n += 1; if (c.probability > a.p) { a.p = c.probability; a.cls = c.risk_class; } }
     }
-    const all = [...agg.entries()].sort((a, b) => b[1] - a[1]);
-    const hexes: MapHex[] = all.slice(0, cap).map(([id, f]) => ({
-      id, color: colors[idx[cls(f)]],
-      tooltip: `<b>${num(f * 100, 0)}% dos anos</b> ${fb.ref_year_min}–${fb.ref_year_max} com detecção VIIRS neste mês${res < 6 ? " (maior valor entre os hexágonos de ~36 km² contidos)" : ""}<br/>Classe: ${CLASS_LABEL[cls(f)]} (limiares a validar)<br/><i>Climatologia, não previsão</i>`,
-    }));
-    return { hexes, colors, total: all.length };
-  }, [fc.data, mapMode, palette, invert, res, cap]);
+    const all = [...agg.entries()].sort((x, y) => y[1].p - x[1].p);
+    const hexes: MapHex[] = all.slice(0, HEX_CAP).map(([id, a]) => {
+      const k = Math.max(0, order.indexOf(a.cls));
+      return {
+        id, color: colors[k], opacity: 0.55 + 0.4 * (k / 3),
+        tooltip: `<b>${num(a.p * 100, 0)}%</b> · ${a.cls.replace("_", " ")}${res < 6 ? ` (${M.riskMax}, ${a.n} hexágonos de ~36 km²)` : ""}<br/><i>${M.riskTooltip}</i>`,
+      };
+    });
+    return { hexes, colors, order, total: all.length };
+  }, [fc.data, layer, palette, invert, res]);
 
-  if (!region) return null;
-  const cmp = sum.data?.comparison;
-  const fb = fc.data?.fallback;
-  const active = mapMode === "densidade" ? hex : mapMode === "focos" ? rec : fc;
+  const onDrawn = useCallback((a: string) => { setDrawMode(null); setFilters({ area: a, cell: null }); }, [setFilters]);
+  const onDrawCancel = useCallback(() => setDrawMode(null), []);
+  const onMap = useCallback((m: L.Map) => { mapRef.current = m; }, []);
+  const onCellClick = useCallback((id: string) => setFilters({ cell: id }), [setFilters]);
+
+  function locate() {
+    if (!("geolocation" in navigator)) { setGeoMsg(M.geo.unsupported); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setGeoMsg("");
+        import("leaflet").then((Lf) => {
+          const m = mapRef.current;
+          if (!m) return;
+          Lf.circleMarker([p.coords.latitude, p.coords.longitude], { pane: "outline", radius: 7, color: "#ffffff", weight: 2, fillColor: "#3fd0b5", fillOpacity: 0.9 })
+            .bindTooltip(M.geo.you).addTo(m);
+          m.flyTo([p.coords.latitude, p.coords.longitude], Math.max(m.getZoom(), 9), { duration: 0.6 });
+        });
+      },
+      () => setGeoMsg(M.geo.denied),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
+    );
+  }
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) { await document.exitFullscreen(); setFullscreen(false); }
+      else if (wrapRef.current) { await wrapRef.current.requestFullscreen(); setFullscreen(true); }
+    } catch { /* fullscreen refused by the browser */ }
+  }
+
+  if (!region) return s.metaError ? <ErrorBox error={s.metaError} onRetry={s.retryMeta} /> : <Loading what="regiões" />;
+
+  const csv = csvUrl({ region: region.key, start, end, ...area });
+  const active = layer === "densidade" ? hex : layer === "focos" ? rec : fc;
+  const comp = sum.data?.comparison;
+  const badge = anomalyBadge(comp?.category);
+  const rs = sum.data?.risk_next_7_days;
+  const cellSel = f.cell ? density.all.find((c) => c.id === f.cell) ?? null : null;
+  const empty = !active.loading && !active.error && (
+    layer === "densidade" ? density.drawn.length === 0 : layer === "focos" ? points.pts.length === 0 : risk.hexes.length === 0);
 
   return (
     <div className="space-y-4">
+      {/* ---------------- cards */}
       <div className="grid gap-3 md:grid-cols-3">
-        <StatCard label="Detecções de calor no período" value={sum.data ? int(sum.data.total_hotspots) : "…"}
-          note={sum.data ? `${brDate(sum.data.start)} a ${brDate(sum.data.end)} · todos os satélites, após filtros de qualidade` : undefined} />
-        <StatCard label="Comparado à média histórica" value={cmp?.deviation_pct != null ? signedPct(cmp.deviation_pct) : "…"}
-          badge={cmp && <Pill>{cmp.label}</Pill>}
-          note={cmp && `mês atual${cmp.same_days_only ? ` (dias 1 a ${cmp.days_compared})` : ""} vs. ${cmp.n_ref} anos anteriores${cmp.percentile != null ? ` · percentil ${num(cmp.percentile, 0)}` : ""}`} />
-        <StatCard label={fc.data?.available ? `Risco nos próximos ${fc.data.horizon_days} dias` : "Climatologia do próximo mês"}
-          value={fb ? CLASS_LABEL[fb.region_class] : fc.data ? "—" : "…"}
-          badge={fb && <Pill className="bg-fire/15 text-fire">não é previsão</Pill>}
-          note={fb && `${num(fb.region_mean * 100, 0)}% dos anos ${fb.ref_year_min}–${fb.ref_year_max} com detecção, em média por hexágono (limiares a validar)`} />
+        {sum.error ? <div className="md:col-span-3"><ErrorBox error={sum.error} onRetry={sum.refetch} /></div> : !sum.data ? (
+          [0, 1, 2].map((i) => <div key={i} className="h-[104px] animate-pulse rounded-xl border border-border bg-panel" />)
+        ) : (
+          <>
+            {f.area ? (
+              <StatCard label={K.focosArea} value={int(Math.round(sum.data.total_harmonized))} note={`${brDate(start)} a ${brDate(end)} · ${K.focosAreaNote}`} />
+            ) : (
+              <StatCard label={K.focos} value={int(sum.data.total_hotspots)} note={`${brDate(start)} a ${brDate(end)} · ${K.focosNote}`} />
+            )}
+            <StatCard label={K.comparado} value={signedPct(comp?.deviation_pct)}
+              badge={<span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", badgeTone(badge))}>{badge}{comp?.percentile != null ? ` · percentil ${Math.round(comp.percentile)}` : ""}</span>}
+              note={comp ? <>
+                {comp.same_days_only ? t(K.sameDays, { d: comp.days_compared, n: comp.n_ref }) : t(K.fullMonth, { mes: cap(MESES[comp.month - 1]), n: comp.n_ref })}
+                {comp.is_provisional ? " · dados provisórios" : ""}<br />{K.comparadoCuts}
+              </> : undefined} />
+            <StatCard label={K.risco} value={rs?.available ? `${int(rs.n_high + rs.n_very_high)} células` : K.riscoNA}
+              badge={rs?.available ? <Pill>alto ou muito alto</Pill> : undefined}
+              note={<>{rs?.message} {!rs?.available && <Link href={s.hrefWith("/previsao")} className="text-brand underline-offset-2 hover:underline">{M.toPrevisao}</Link>}</>} />
+          </>
+        )}
       </div>
 
-      <Panel title="Mapa de focos" pngName={`mapa_${region.key}_${mapMode}`}
-        subtitle={mapMode === "focos"
-          ? `Detecções individuais dos últimos ${pointDays} dias${days > 60 ? " (máximo disponível para pontos)" : ""}`
-          : mapMode === "risco" ? (fb?.label ?? "Climatologia")
-          : `${region.name} · ${brDate(start)} a ${brDate(end)}${hex.data ? ` · ${hex.data.granularity === "day" ? "dados diários" : "totais mensais"}` : ""}`}
-        actions={<Toggle label="Camada do mapa" value={mapMode} onChange={(m: MapMode) => setMapMode(m)}
-          options={[{ id: "densidade", label: "Densidade" }, { id: "focos", label: "Focos" }, { id: "risco", label: "Climatologia" }]} />}>
-
-        <div className="mb-3 flex flex-wrap items-center gap-3 text-xs" data-html2png-ignore>
-          {mapMode !== "risco" && (
-            <label className="flex items-center gap-1.5">Sensores
-              <select className="rounded border border-input bg-background px-1.5 py-1" value={sensor} onChange={(e) => setSensor(e.target.value as SensorCat)}>
-                <option value="todos">Todos</option>
-                <option value="modis">Só MODIS</option>
-                <option value="viirs">Só VIIRS</option>
-                <option value="ambos">Ambos (mesmo hexágono)</option>
-              </select>
-            </label>
-          )}
-          <label className="flex items-center gap-1.5">Desenhar até
-            <select className="rounded border border-input bg-background px-1.5 py-1" value={cap} onChange={(e) => setCap(Number(e.target.value))}>
-              {CAPS.map((c) => <option key={c} value={c}>{int(c)}</option>)}
-            </select>
-            {mapMode === "focos" ? "pontos" : "hexágonos"}
-          </label>
-          {mapMode === "focos" && (
-            <fieldset className="flex flex-wrap items-center gap-2">
-              <legend className="sr-only">Intensidade (FRP)</legend>
-              <span className="text-muted-foreground">Intensidade (FRP, quartis por sensor):</span>
-              {FRP_CLASSES.map((c, i) => (
-                <label key={c} className="flex items-center gap-1">
-                  <input type="checkbox" checked={frpOn[i]} onChange={(e) => setFrpOn(frpOn.map((v, j) => (j === i ? e.target.checked : v)))} />
-                  <span className="inline-block size-2.5 rounded-full" style={{ background: pointsLayer.colors[i] }} />{c}
-                </label>
-              ))}
-            </fieldset>
-          )}
+      {/* ---------------- map */}
+      <section className="rounded-xl border border-border bg-panel p-3 sm:p-4" aria-labelledby="map-title">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <h2 id="map-title" className="text-base font-semibold">{M.panelTitle}</h2>
+          <span className="text-xs text-muted-foreground">{region.name} · {brDate(start)} a {brDate(end)}{f.area ? ` · ${copy.sidebar.customArea}` : ""}</span>
+          <button type="button" onClick={() => setAsTable(!asTable)} aria-pressed={asTable}
+            className={cn("ml-auto rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent pointer-coarse:min-h-11", ring)}>
+            {asTable ? M.table.hide : M.table.show}
+          </button>
         </div>
 
-        {active.error && <ErrorBox error={active.error} />}
-        <div className="relative">
-          {region.bbox && (
-            <HexMap bbox={region.bbox} onZoom={setZoom}
-              hexes={mapMode === "densidade" ? density.hexes : mapMode === "risco" ? risk.hexes : []}
-              points={mapMode === "focos" ? pointsLayer.points : []} />
-          )}
-          {active.loading && <div className="absolute inset-x-0 top-2 z-[500] mx-auto w-fit rounded-md bg-panel/90 px-3 py-1 text-xs" role="status">Carregando…</div>}
-        </div>
+        {asTable ? (
+          <CellTable rows={density.all.slice(0, 20)} unit={M.densityUnit[f.sensor]} loading={hex.loading} layer={layer} />
+        ) : (
+          <div ref={wrapRef} className="relative h-[50vh] min-h-[320px] overflow-hidden rounded-lg bg-background lg:h-[60vh]">
+            <HexMap bbox={region.bbox} area={f.area} basemap={basemap} drawMode={drawMode} resetKey={resetKey}
+              hexes={layer === "densidade" ? density.hexes : layer === "risco" ? risk.hexes : []}
+              points={layer === "focos" ? points.pts : []}
+              onZoom={setZoom} onMap={onMap} onCellClick={layer === "densidade" ? onCellClick : undefined}
+              onDrawn={onDrawn} onDrawCancel={onDrawCancel} onTileError={setTileFailed} />
 
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          {mapMode === "densidade" && hex.data && (
+            {/* layer toggle (top-left) */}
+            <div role="radiogroup" aria-label={M.layerLabel} className="absolute left-2 top-2 z-[500] flex gap-0.5 rounded-lg border border-border bg-panel/95 p-0.5 shadow">
+              {(["densidade", "focos", "risco"] as Layer[]).map((l) => {
+                const disabled = l === "risco" && !riskOn;
+                return (
+                  <button key={l} type="button" role="radio" aria-checked={layer === l} disabled={disabled}
+                    title={disabled ? M.riskDisabled : undefined}
+                    onClick={() => setFilters({ layer: l, cell: null })}
+                    className={cn("rounded-md px-3 py-1 text-xs font-medium pointer-coarse:min-h-11 disabled:cursor-not-allowed disabled:opacity-40", ring,
+                      layer === l ? "bg-brand text-black" : "text-muted-foreground hover:text-foreground")}>
+                    {M.layers[l]}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* tool column (right, under the zoom control) */}
+            <div className="absolute right-2 top-[84px] z-[500] flex flex-col gap-1.5">
+              <Popover>
+                <PopoverTrigger aria-label={M.tools.camadas} title={M.tools.camadas} className={toolBtn}><Layers className="size-4" aria-hidden /></PopoverTrigger>
+                <PopoverContent side="left" align="start" className="w-56 p-2">
+                  <div role="radiogroup" aria-label={M.tools.camadas} className="flex flex-col gap-1">
+                    {(["escuro", "claro", "satelite"] as Basemap[]).map((b) => (
+                      <button key={b} type="button" role="radio" aria-checked={basemap === b} disabled={b === "satelite"}
+                        onClick={() => { setTileFailed(false); setBasemap(b); }}
+                        className={cn(menuItem, basemap === b && "bg-brand/15 text-brand")}>
+                        {M.basemaps[b]}{b === "satelite" && <span className="block text-xs text-muted-foreground">{M.sateliteDisabled}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Popover>
+                <PopoverTrigger aria-label={M.tools.desenhar} title={M.tools.desenhar} className={cn(toolBtn, drawMode && "border-brand text-brand")}><PenLine className="size-4" aria-hidden /></PopoverTrigger>
+                <PopoverContent side="left" align="start" className="w-52 p-2">
+                  <div className="flex flex-col gap-1">
+                    <button type="button" onClick={() => setDrawMode("rect")} aria-pressed={drawMode === "rect"} className={menuItem}>{M.draw.rect}</button>
+                    <button type="button" onClick={() => setDrawMode("poly")} aria-pressed={drawMode === "poly"} className={menuItem}>{M.draw.poly}</button>
+                    <button type="button" onClick={() => setTypedOpen(true)} className={menuItem}>{M.draw.typed}</button>
+                    <button type="button" disabled={!f.area && !drawMode} onClick={() => { setDrawMode(null); setFilters({ area: null }); }} className={menuItem}>{M.draw.clear}</button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <button type="button" onClick={locate} aria-label={M.tools.localizacao} title={M.tools.localizacao} className={toolBtn}><LocateFixed className="size-4" aria-hidden /></button>
+              <button type="button" onClick={() => setResetKey((k) => k + 1)} aria-label={M.tools.reiniciar} title={M.tools.reiniciar} className={toolBtn}><RotateCcw className="size-4" aria-hidden /></button>
+              <button type="button" onClick={toggleFullscreen} aria-label={fullscreen ? M.tools.sairTelaCheia : M.tools.telaCheia} title={fullscreen ? M.tools.sairTelaCheia : M.tools.telaCheia} className={toolBtn}>
+                {fullscreen ? <Shrink className="size-4" aria-hidden /> : <Expand className="size-4" aria-hidden />}
+              </button>
+              <a href={csv} aria-label={M.tools.csv} title={M.tools.csv} className={cn(toolBtn, "border-brand bg-brand text-black hover:bg-brand/90")}><Download className="size-4" aria-hidden /></a>
+            </div>
+
+            {/* banners (top-center) */}
+            <div className="pointer-events-none absolute inset-x-0 top-12 z-[500] mx-auto flex w-fit max-w-[70%] flex-col items-center gap-1 text-center text-xs" aria-live="polite">
+              {drawMode && <p className="rounded-md bg-panel/95 px-2 py-1 shadow"><Crosshair className="mr-1 inline size-3.5" aria-hidden />{drawMode === "rect" ? M.draw.hintRect : M.draw.hintPoly}</p>}
+              {tileFailed && <p className="rounded-md bg-fire/90 px-2 py-1 text-black">{M.tileError}</p>}
+              {geoMsg && <p className="rounded-md bg-panel/95 px-2 py-1 shadow">{geoMsg}</p>}
+              {layer === "densidade" && density.all.length > HEX_CAP && <p className="rounded-md bg-panel/95 px-2 py-1 shadow">{t(M.capBanner, { n: int(HEX_CAP), total: int(density.all.length) })}</p>}
+              {layer === "risco" && risk.total > HEX_CAP && <p className="rounded-md bg-panel/95 px-2 py-1 shadow">{t(M.capBanner, { n: int(HEX_CAP), total: int(risk.total) })}</p>}
+              {layer === "focos" && points.total > POINT_CAP && <p className="rounded-md bg-panel/95 px-2 py-1 shadow">{t(M.pointsCapBanner, { n: int(POINT_CAP), total: int(points.total) })}</p>}
+            </div>
+
+            {/* states over the map */}
+            {active.loading && <div className="pointer-events-none absolute inset-0 z-[450] grid place-items-center bg-background/30"><span role="status" className="animate-pulse rounded-md bg-panel px-3 py-1.5 text-sm">{copy.states.loading}…</span></div>}
+            {active.error && <div className="absolute inset-x-4 bottom-20 z-[600]"><ErrorBox error={active.error} onRetry={active.refetch} /></div>}
+            {empty && <div className="pointer-events-none absolute inset-x-8 top-1/3 z-[450]"><EmptyState /></div>}
+
+            {/* legend (bottom-left) */}
+            <div className="absolute bottom-2 left-2 z-[500] max-w-[min(380px,75%)] rounded-lg border border-border bg-panel/95 p-2 text-[0.7rem] shadow">
+              {layer === "densidade" && <ClassLegend colors={density.colors} breaks={density.breaks} unit={M.densityUnit[f.sensor]}
+                decimals={f.sensor === "todos" && hex.data?.granularity === "month" ? 1 : 0}
+                note={`${t(M.cellSize, { km2: AREA_KM2[res] })}${res < 6 ? ` (${M.aggregated})` : ""}`} />}
+              {layer === "focos" && <FrpLegend colors={points.colors} />}
+              {layer === "risco" && (
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5">{risk.order.map((o, i) => <span key={o} className="flex items-center gap-1"><span className="size-3 rounded-sm" style={{ background: risk.colors[i] }} aria-hidden />{o.replace("_", " ")}</span>)}</div>
+                  <p className="text-muted-foreground">{M.riskLegend} {fc.data?.forecast_date ? `· ${brDate(fc.data.forecast_date)}` : ""} · {t(M.cellSize, { km2: AREA_KM2[res] })}</p>
+                  <p><b>{M.riskTooltip}.</b> <Link href={s.hrefWith("/previsao")} className="text-brand underline-offset-2 hover:underline">{M.toPrevisao}</Link></p>
+                </div>
+              )}
+            </div>
+
+            {/* cell detail (right) */}
+            {cellSel && layer === "densidade" && (
+              <CellPanel cell={cellSel} res={res} unit={M.densityUnit[f.sensor]} regionKey={region.key} start={start} end={end}
+                onClose={() => setFilters({ cell: null })} onUseArea={(poly) => setFilters({ area: poly, cell: null })} />
+            )}
+          </div>
+        )}
+
+        {/* notes under the map */}
+        <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+          {layer === "focos" && rec.data && (
             <>
-              <span>menos</span>
-              <div className="flex">{density.colors.map((c, i) => <span key={c + i} className="h-3 w-7" style={{ background: c }} />)}</div>
-              <span>mais</span>
-              <span>· células-dia com detecção (classes por quantil) · hexágonos de ~{AREA_KM2[res]} km²{res < 6 ? " (agregados; aproxime para ver ~36 km²)" : ""} · mostrando {int(density.drawn)} de {int(density.matched)}{density.drawn < density.matched ? " (os de maior valor)" : ""}</span>
+              <p>{t(M.pointsWindow, { days: pointDays, start: brDate(rec.data.days[0]?.date), end: brDate(rec.data.days[rec.data.days.length - 1]?.date) })}
+                {rec.data.truncated ? ` ${t(M.pointsTruncated, { n: int(rec.data.detections.length) })}` : ""}</p>
+              {pointsData.q.MODIS.length === 3 && <p>{t(M.frpComputed, {
+                m: pointsData.q.MODIS.map((x) => num(x, 1)).join(" / "), v: pointsData.q.VIIRS.length === 3 ? pointsData.q.VIIRS.map((x) => num(x, 1)).join(" / ") : "—" })}</p>}
             </>
           )}
-          {mapMode === "focos" && rec.data && (
-            <span>
-              {int(pointsLayer.points.length)} de {int(pointsLayer.total)} detecções desenhadas{rec.data.truncated ? " (lista truncada pela API)" : ""} ·
-              contorno branco = MODIS, escuro = VIIRS · quartis de FRP: MODIS {pointsLayer.q.MODIS.map((v) => num(v)).join(" / ") || "—"} MW;
-              VIIRS {pointsLayer.q.VIIRS.map((v) => num(v)).join(" / ") || "—"} MW
-            </span>
-          )}
-          {mapMode === "risco" && fb && (
-            <>
-              {["Baixo", "Moderado", "Alto", "Muito alto"].map((l, i) => (
-                <span key={l} className="flex items-center gap-1"><span className="h-3 w-5" style={{ background: risk.colors[i] }} />{l}</span>
-              ))}
-              <span>· limiares {Object.values(fb.thresholds).map((t) => `${num(t * 100, 0)}%`).join(" / ")} (a validar) · hexágonos de ~{AREA_KM2[res]} km²{res < 6 ? " (maior frequência entre os contidos)" : ""} · {int(risk.hexes.length)} de {int(risk.total)}{fb.truncated ? ` (fonte limitada a ${int(fb.cells.length)} de ${int(fb.n_cells)})` : ""}</span>
-            </>
-          )}
+          {layer === "densidade" && f.category === "coincidentes" && <p>{M.categoryNoteDensity}</p>}
+          <p>{M.honesty}</p>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Cada cor indica detecções de calor por satélite, não área queimada nem incêndio confirmado. Hexágono sem cor não garante ausência de fogo
-          (nuvens, fumaça e horário das passagens escondem focos).
-        </p>
-      </Panel>
+      </section>
+
+      <TypedAreaDialog open={typedOpen} onOpenChange={setTypedOpen} bbox={region.bbox}
+        onApply={(a) => { setTypedOpen(false); setFilters({ area: a, cell: null }); }} />
     </div>
+  );
+}
+
+function ClassLegend({ colors, breaks, unit, note, decimals }: { colors: string[]; breaks: number[]; unit: string; note: string; decimals: number }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
+        <span>{M.legend.less}</span>
+        <div className="flex">
+          {colors.map((c, i) => <span key={i} className="h-2.5 w-7" style={{ background: c }} />)}
+        </div>
+        <span>{M.legend.more}</span>
+      </div>
+      {breaks.length > 0 && (
+        <div className="flex tabular-nums text-muted-foreground" style={{ paddingLeft: "calc(2.2rem + 1.75rem * 0.5)" }}>
+          {breaks.map((b, i) => <span key={i} className="w-7 text-center">{num(b, decimals)}</span>)}
+        </div>
+      )}
+      <p className="text-muted-foreground">{unit} · {note}</p>
+    </div>
+  );
+}
+
+/** FRP legend with the interactive chips for the Focos layer (same state as the sidebar). */
+function FrpLegend({ colors }: { colors: string[] }) {
+  const { filters, setFilters } = useAppState();
+  const all = filters.frp.length === 0;
+  return (
+    <div className="space-y-1">
+      <p className="font-medium">{copy.sidebar.frp}: {copy.sidebar.frpNote}</p>
+      <div className="flex flex-wrap gap-1">
+        {FRP_ORDER.map((c, i) => {
+          const on = all || filters.frp.includes(c);
+          return (
+            <button key={c} type="button" aria-pressed={on}
+              onClick={() => {
+                const set = new Set(all ? FRP_ORDER : filters.frp);
+                if (set.has(c)) set.delete(c); else set.add(c);
+                const next = FRP_ORDER.filter((x) => set.has(x));
+                setFilters({ frp: next.length === FRP_ORDER.length || next.length === 0 ? [] : next });
+              }}
+              className={cn("flex items-center gap-1 rounded-full border px-2 py-0.5 pointer-coarse:min-h-11", ring, on ? "border-brand" : "border-border opacity-50")}>
+              <span className="size-2.5 rounded-full" style={{ background: colors[i] }} aria-hidden />{copy.sidebar.frpClasses[c]}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CellTable({ rows, unit, loading, layer }: { rows: AggCell[]; unit: string; loading: boolean; layer: Layer }) {
+  if (layer !== "densidade") return <EmptyState text={M.table.onlyDensity} />;
+  if (loading && !rows.length) return <Loading what="tabela" />;
+  if (!rows.length) return <EmptyState />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <caption className="pb-2 text-left text-xs text-muted-foreground">{M.table.caption} ({unit})</caption>
+        <thead><tr className="text-left text-xs text-muted-foreground">
+          <th scope="col" className="py-1 pr-3">{M.table.id}</th><th scope="col" className="py-1 pr-3 text-right">{M.table.count}</th>
+          <th scope="col" className="py-1 pr-3 text-right">{M.table.pct}</th><th scope="col" className="py-1">{M.table.dominant}</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className="border-t border-border">
+              <td className="py-1.5 pr-3 font-mono text-xs">{r.id}</td>
+              <td className="py-1.5 pr-3 text-right tabular-nums">{num(r.value, 0)}</td>
+              <td className="py-1.5 pr-3 text-right tabular-nums">{r.percentile}</td>
+              <td className="py-1.5">{dominant(r)} <span className="text-xs text-muted-foreground">(MODIS {int(r.modis)} · VIIRS {int(r.viirs)})</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CellPanel({ cell, res, unit, regionKey, start, end, onClose, onUseArea }: {
+  cell: AggCell; res: number; unit: string; regionKey: string; start?: string; end?: string;
+  onClose: () => void; onUseArea: (poly: string) => void;
+}) {
+  const P = M.cellPanel;
+  const poly = cellPolygonParam(cellToBoundary(cell.id) as [number, number][]);
+  return (
+    <aside aria-label={P.title} className="absolute bottom-2 right-14 top-2 z-[550] w-64 overflow-y-auto rounded-lg border border-border bg-panel/95 p-3 text-sm shadow-lg pointer-coarse:right-16">
+      <div className="mb-2 flex items-start gap-2">
+        <h3 className="font-semibold">{P.title}</h3>
+        <button type="button" onClick={onClose} aria-label={P.close} className={cn("ml-auto grid size-7 place-items-center rounded hover:bg-accent", ring)}><X className="size-4" aria-hidden /></button>
+      </div>
+      <p className="font-mono text-xs text-muted-foreground">{cell.id} · ~{AREA_KM2[res]} km²</p>
+      <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5">
+        <dt className="text-muted-foreground">{cap(unit)}</dt><dd className="text-right tabular-nums">{num(cell.value, 0)}</dd>
+        <dt className="text-muted-foreground">{P.percentile}</dt><dd className="text-right tabular-nums">{cell.percentile}</dd>
+        <dt className="text-muted-foreground">{P.modis}</dt><dd className="text-right tabular-nums">{int(cell.modis)}</dd>
+        <dt className="text-muted-foreground">{P.viirs}</dt><dd className="text-right tabular-nums">{int(cell.viirs)}</dd>
+        {res < 6 && <><dt className="text-muted-foreground">{P.children}</dt><dd className="text-right tabular-nums">{cell.n}</dd></>}
+      </dl>
+      <p className="mt-3 text-xs text-muted-foreground">{P.noSeries}</p>
+      <div className="mt-3 flex flex-col gap-1.5">
+        <a href={csvUrl({ region: regionKey, start, end, polygon: poly })} className={cn("flex items-center justify-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-sm font-semibold text-black pointer-coarse:min-h-11", ring)}>
+          <Download className="size-4" aria-hidden /> {P.csv}
+        </a>
+        <button type="button" onClick={() => onUseArea(`poly:${poly}`)} className={cn("rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent pointer-coarse:min-h-11", ring)}>{P.useArea}</button>
+      </div>
+    </aside>
+  );
+}
+
+function TypedAreaDialog({ open, onOpenChange, bbox, onApply }: { open: boolean; onOpenChange: (o: boolean) => void; bbox: number[]; onApply: (a: string) => void }) {
+  const D = M.draw;
+  const [v, setV] = useState<string[]>(bbox.map(String));
+  const [err, setErr] = useState(false);
+  function apply(e: React.FormEvent) {
+    e.preventDefault();
+    const a = parseArea(`bbox:${v.join(",")}`);
+    if (!a) { setErr(true); return; }
+    setErr(false);
+    onApply(a);
+  }
+  const labels = [D.west, D.south, D.east, D.north];
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogTitle className="font-heading">{D.typedTitle}</DialogTitle>
+        <DialogDescription>{D.typedDesc}</DialogDescription>
+        <form onSubmit={apply} className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            {labels.map((l, i) => (
+              <label key={l} className="text-sm">{l}
+                <input inputMode="decimal" value={v[i]} aria-invalid={err}
+                  onChange={(e) => setV((x) => x.map((y, j) => (j === i ? e.target.value.replace(",", ".") : y)))}
+                  className="mt-1 block w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm" />
+              </label>
+            ))}
+          </div>
+          {err && <p role="alert" className="text-xs text-fire">{D.invalid}</p>}
+          <button type="submit" className={cn("w-full rounded-md bg-brand px-3 py-2 text-sm font-semibold text-black", ring)}>{D.apply}</button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -310,6 +310,7 @@ class Detection(BaseModel):
     sensor_family: str
     frp: Optional[float]
     confidence_class: str
+    daynight: Optional[str] = None  # "D" day / "N" night pass (FIRMS)
 
 
 class RecentResponse(BaseModel):

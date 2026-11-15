@@ -542,6 +542,8 @@ export interface components {
             frp: number | null;
             /** Confidence Class */
             confidence_class: string;
+            /** Daynight */
+            daynight?: string | null;
         };
         /** ForecastCell */
         ForecastCell: {

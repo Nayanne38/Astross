@@ -208,12 +208,14 @@ def regional(region: str) -> pd.DataFrame:
 
 def recent_detections(region: str, start: date, end: date, cells: frozenset | None, limit: int) -> tuple[pd.DataFrame, bool]:
     t = raw_hotspots
-    df = _df(select(t.c.lat, t.c.lon, t.c.date, t.c.time_utc, t.c.satellite, t.c.sensor_family,
-                    t.c.frp, t.c.confidence_class, t.c.h3_cell)
-             .where(t.c.region == region, t.c.date >= start, t.c.date <= end)
-             .order_by(t.c.date.desc(), t.c.time_utc.desc()).limit(limit + 1))
-    if cells is not None:
-        df = df[df.h3_cell.isin(cells)]
+    sel = (select(t.c.lat, t.c.lon, t.c.date, t.c.time_utc, t.c.satellite, t.c.sensor_family,
+                  t.c.frp, t.c.confidence_class, t.c.daynight, t.c.h3_cell)
+           .where(t.c.region == region, t.c.date >= start, t.c.date <= end))
+    if cells is not None:  # area filter before the limit, so a drawn area is not cut by detections outside it
+        if not cells:
+            return _df(sel.limit(0)).drop(columns="h3_cell"), False
+        sel = sel.where(t.c.h3_cell.in_(sorted(cells)))
+    df = _df(sel.order_by(t.c.date.desc(), t.c.time_utc.desc()).limit(limit + 1))
     return df.head(limit).drop(columns="h3_cell"), len(df) > limit
 
 

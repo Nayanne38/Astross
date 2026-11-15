@@ -412,7 +412,8 @@ def recent(a: Area = Depends(), days: int = Query(7, ge=1, le=60), limit: int = 
         days=[RecentDay(date=x.date.date(), harmonized=_nan(x.harmonized), modis_fcd=int(x.modis_fcd),
                         viirs_fcd=int(x.viirs_fcd), hotspots_total=int(x.hotspots_total)) for x in r.itertuples()],
         detections=[Detection(lat=x.lat, lon=x.lon, date=x.date, time_utc=int(x.time_utc), satellite=x.satellite,
-                              sensor_family=x.sensor_family, frp=_nan(x.frp), confidence_class=x.confidence_class)
+                              sensor_family=x.sensor_family, frp=_nan(x.frp), confidence_class=x.confidence_class,
+                              daynight=x.daynight if isinstance(x.daynight, str) else None)
                     for x in det.itertuples()],
         truncated=trunc, share_high_confidence=share_high, learn=learn)
 

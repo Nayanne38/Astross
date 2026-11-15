@@ -147,7 +147,7 @@
   }
 }
 .leaflet-container { background: var(--background) !important; font-family: inherit; }
-.leaflet-tooltip { background: #141d23; color: #e6eef1; border: 1px solid #22303a; box-shadow: none; }
+.leaflet-tooltip { background: #141d23; color: #e9f0f3; border: 1px solid #26343d; box-shadow: none; }
 .leaflet-tooltip:before { display: none; }
 .leaflet-bar a { background: #141d23 !important; color: #e6eef1 !important; border-color: #22303a !important; }
 .leaflet-control-attribution { background: rgba(14,20,24,.8) !important; color: #93a7b1 !important; }
@@ -158,3 +158,8 @@
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
 .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+
+/* "Escuro" basemap without a CARTO key: OSM tiles darkened in the browser (tiles themselves unchanged) */
+.tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(0.62) contrast(0.9) saturate(0.35); }
+.leaflet-control-scale-line { background: rgba(14,20,24,.8) !important; color: #a9bbc4 !important; border-color: #a9bbc4 !important; }
+.leaflet-container:focus-visible { outline: 2px solid #3fd0b5; outline-offset: -2px; }
