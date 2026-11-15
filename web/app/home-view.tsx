@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { cellToParent, latLngToCell } from "h3-js";
 import { useApi, useAppState, type MapMode } from "@/components/app-state";
 import { ErrorBox, Panel, Pill, StatCard, Toggle } from "@/components/panel";
@@ -41,13 +41,6 @@ export function HomeView() {
   const [frpOn, setFrpOn] = useState([true, true, true, true]);
   const [zoom, setZoom] = useState(5);
   const res = displayRes(zoom);
-
-  // deep link: /#focos, /#climatologia, /#densidade
-  useEffect(() => {
-    const h = window.location.hash.replace("#", "");
-    const m = ({ focos: "focos", climatologia: "risco", densidade: "densidade" } as Record<string, MapMode>)[h];
-    if (m) setMapMode(m);
-  }, [setMapMode]);
 
   const start = range.start ?? region?.data_start ?? undefined;
   const end = range.end ?? region?.data_end ?? undefined;

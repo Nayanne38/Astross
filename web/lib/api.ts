@@ -23,19 +23,24 @@ export function cacheKey(path: string, params: Params = {}): string {
   return (path.replace(/^\//, "").replace(/[/.]/g, "-") + (tail ? `__${tail}` : "")).replace(/[^a-zA-Z0-9_\-]/g, "");
 }
 
-export async function getJSON<T>(path: string, params: Params = {}): Promise<Fetched<T>> {
+/** GET a JSON resource. `signal` cancels stale requests (TanStack Query passes one per query). */
+export async function getJSON<T>(path: string, params: Params = {}, signal?: AbortSignal): Promise<Fetched<T>> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(new DOMException("timeout", "TimeoutError")), TIMEOUT_MS);
+  const onAbort = () => ctrl.abort(signal?.reason);
+  signal?.addEventListener("abort", onAbort);
   try {
     const r = await fetch(`${API_URL}${path}${qs(params)}`, { signal: ctrl.signal });
-    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 300)}`);
     return { data: (await r.json()) as T, source: "api" };
   } catch (err) {
+    if (signal?.aborted) throw err; // superseded by a newer request: no cache fallback
     const c = await fetch(`/cache/${cacheKey(path, params)}.json`).catch(() => null);
     if (c && c.ok) return { data: (await c.json()) as T, source: "cache" };
     throw err;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 

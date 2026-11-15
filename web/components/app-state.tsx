@@ -1,102 +1,131 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+// Global state: filters live in the URL query string (shareable links) and in this context.
+// Controls update instantly (draft); the URL and data queries follow after a 300 ms debounce.
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { QueryClient, QueryClientProvider, keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getJSON, type Source } from "@/lib/api";
-import { addDays } from "@/lib/format";
+import {
+  DEFAULT_FILTERS, areaParams, filterRange, parseFilters, serializeFilters, type Filters, type Layer,
+} from "@/lib/filters";
+import { FONT_STEPS, getPrefs, getServerPrefs, setPrefs, subscribePrefs, type Prefs } from "@/lib/prefs";
 import type { PaletteId } from "@/lib/palettes";
 import type { Meta, Region } from "@/lib/types";
 
-export type PeriodId = "serie" | "5a" | "12m" | "60d" | "30d" | "7d" | "1d";
-export type MapMode = "densidade" | "focos" | "risco";
-export const PERIODS: { id: PeriodId; label: string }[] = [
-  { id: "serie", label: "Série completa (2003–hoje)" },
-  { id: "5a", label: "Últimos 5 anos" },
-  { id: "12m", label: "Últimos 12 meses" },
-  { id: "60d", label: "Últimos 60 dias" },
-  { id: "30d", label: "Últimos 30 dias" },
-  { id: "7d", label: "Últimos 7 dias" },
-  { id: "1d", label: "Últimas 24 h (último dia com dados)" },
-];
-// Default period per screen: the map opens on the last 30 days, the calendar on the full series.
-const DEFAULT_PERIOD: Record<string, PeriodId> = { "/": "30d", "/previsao": "30d" };
+export type MapMode = Layer;
+const DEBOUNCE_MS = 300;
 
 interface State {
   meta: Meta | null;
   metaError: string | null;
+  retryMeta: () => void;
   region: Region | null;
-  setRegionKey: (k: string) => void;
-  period: PeriodId;
-  setPeriod: (p: PeriodId) => void;
-  setPeriodFor: (path: string, p: PeriodId) => void;
+  /** Filters as shown in the controls (instant). */
+  filters: Filters;
+  /** Filters after the debounce: what the URL and the data queries use. */
+  committed: Filters;
+  setFilters: (patch: Partial<Filters>) => void;
+  resetFilters: () => void;
+  /** Link to another view keeping the current filters (optionally changed). */
+  hrefWith: (path: string, patch?: Partial<Filters>) => string;
+  range: { start?: string; end?: string };
+  area: { bbox?: string; polygon?: string };
+  palette: PaletteId; // effective palette (high contrast forces "contraste")
+  invert: boolean;
+  classes: number;
   mapMode: MapMode;
   setMapMode: (m: MapMode) => void;
-  range: { start?: string; end?: string };
-  palette: PaletteId;
-  setPalette: (p: PaletteId) => void;
-  invert: boolean;
-  setInvert: (b: boolean) => void;
-  classes: number;
-  setClasses: (n: number) => void;
-  highContrast: boolean;
-  setHighContrast: (b: boolean) => void;
-  fontScale: number;
-  setFontScale: (n: number) => void;
+  prefs: Prefs;
+  setPrefs: (p: Partial<Prefs>) => void;
   sources: Record<string, Source>;
   reportSource: (key: string, s: Source) => void;
 }
 
 const Ctx = createContext<State | null>(null);
 
-export function periodRange(p: PeriodId, dataEnd?: string | null): { start?: string; end?: string } {
-  if (!dataEnd || p === "serie") return {};
-  const days = { "5a": 5 * 365, "12m": 365, "60d": 60, "30d": 30, "7d": 7, "1d": 1 }[p];
-  return { start: addDays(dataEnd, -(days - 1)), end: dataEnd };
+export function Providers({ children }: { children: React.ReactNode }) {
+  const [client] = useState(() => new QueryClient({
+    defaultOptions: { queries: { staleTime: 5 * 60_000, gcTime: 30 * 60_000, retry: 1, refetchOnWindowFocus: false } },
+  }));
+  return <QueryClientProvider client={client}><AppStateProvider>{children}</AppStateProvider></QueryClientProvider>;
 }
 
-export function AppStateProvider({ children }: { children: React.ReactNode }) {
+function AppStateProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
-  const [meta, setMeta] = useState<Meta | null>(null);
-  const [metaError, setMetaError] = useState<string | null>(null);
-  const [regionKey, setRegionKey] = useState<string | null>(null);
-  const [periods, setPeriods] = useState<Record<string, PeriodId>>({});
-  const [palette, setPalette] = useState<PaletteId>("inferno");
-  const [invert, setInvert] = useState(false);
-  const [classes, setClasses] = useState(6);
-  const [highContrast, setHighContrast] = useState(false);
-  const [fontScale, setFontScale] = useState(1);
-  const [sources, setSources] = useState<Record<string, Source>>({});
-  const [mapMode, setMapMode] = useState<MapMode>("densidade");
+  const router = useRouter();
+  const sp = useSearchParams();
+  const urlQs = sp.toString();
+  const committed = useMemo(() => parseFilters(new URLSearchParams(urlQs)), [urlQs]);
 
-  useEffect(() => {
-    getJSON<Meta>("/meta")
-      .then(({ data, source }) => { setMeta(data); setSources((s) => ({ ...s, meta: source })); })
-      .catch((e) => setMetaError(String(e)));
+  // Draft filters belong to the URL state they were edited from; once the URL catches up they are dropped.
+  const [draft, setDraft] = useState<{ base: string; value: Filters } | null>(null);
+  const filters = draft && draft.base === urlQs ? draft.value : committed;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef(filters);
+  useEffect(() => { latest.current = filters; }, [filters]);
+
+  const writeUrl = useCallback((f: Filters) => {
+    const q = serializeFilters(f);
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+  }, [pathname, router]);
+
+  const setFilters = useCallback((patch: Partial<Filters>) => {
+    const next = { ...latest.current, ...patch };
+    latest.current = next;
+    setDraft({ base: urlQs, value: next });
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => writeUrl(next), DEBOUNCE_MS);
+  }, [urlQs, writeUrl]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  const resetFilters = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    const next = { ...DEFAULT_FILTERS, region: latest.current.region };
+    latest.current = next;
+    setDraft({ base: urlQs, value: next });
+    writeUrl(next);
+  }, [urlQs, writeUrl]);
+
+  const hrefWith = useCallback((path: string, patch?: Partial<Filters>) => {
+    const q = serializeFilters({ ...latest.current, ...patch });
+    return q ? `${path}?${q}` : path;
   }, []);
 
-  useEffect(() => {
-    document.documentElement.style.fontSize = `${fontScale * 100}%`;
-  }, [fontScale]);
-  useEffect(() => {
-    document.documentElement.classList.toggle("hc", highContrast);
-  }, [highContrast]);
+  const metaQ = useQuery({
+    queryKey: ["/meta"],
+    queryFn: ({ signal }) => getJSON<Meta>("/meta", {}, signal),
+    staleTime: 60_000,
+  });
+  const meta = metaQ.data?.data ?? null;
 
   const region = useMemo(() => {
     if (!meta) return null;
-    const k = regionKey || meta.default_region;
+    const k = committed.region || meta.default_region;
     return meta.regions.find((r) => r.key === k) || meta.regions[0] || null;
-  }, [meta, regionKey]);
+  }, [meta, committed.region]);
 
-  const period = periods[pathname] || DEFAULT_PERIOD[pathname] || "serie";
-  const setPeriodFor = useCallback((path: string, p: PeriodId) => setPeriods((s) => ({ ...s, [path]: p })), []);
-  const setPeriod = useCallback((p: PeriodId) => setPeriodFor(pathname, p), [pathname, setPeriodFor]);
-  const range = useMemo(() => periodRange(period, region?.data_end), [period, region]);
+  const prefs = useSyncExternalStore(subscribePrefs, getPrefs, getServerPrefs);
+  useEffect(() => {
+    const el = document.documentElement;
+    el.style.fontSize = `${FONT_STEPS[prefs.fontStep] * 100}%`;
+    el.classList.toggle("hc", prefs.highContrast);
+    el.classList.toggle("reduce-motion", prefs.reduceMotion);
+  }, [prefs]);
+
+  const [sources, setSources] = useState<Record<string, Source>>({});
   const reportSource = useCallback((key: string, s: Source) => setSources((x) => (x[key] === s ? x : { ...x, [key]: s })), []);
 
+  const range = useMemo(() => filterRange(committed, region?.data_end), [committed, region]);
+  const area = useMemo(() => areaParams(committed.area), [committed.area]);
+  const setMapMode = useCallback((m: MapMode) => setFilters({ layer: m }), [setFilters]);
+
   const value: State = {
-    meta, metaError, region, setRegionKey, period, setPeriod, setPeriodFor, mapMode, setMapMode, range,
-    palette: highContrast ? "contraste" : palette, setPalette, invert, setInvert, classes, setClasses,
-    highContrast, setHighContrast, fontScale, setFontScale, sources, reportSource,
+    meta, metaError: metaQ.error ? String(metaQ.error) : null, retryMeta: () => { void metaQ.refetch(); },
+    region, filters, committed, setFilters, resetFilters, hrefWith, range, area,
+    palette: prefs.highContrast ? "contraste" : filters.palette, invert: filters.invert, classes: filters.classes,
+    mapMode: filters.layer, setMapMode, prefs, setPrefs,
+    sources: metaQ.data ? { ...sources, meta: metaQ.data.source } : sources, reportSource,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -107,29 +136,28 @@ export function useAppState(): State {
   return v;
 }
 
-/** Fetch an API resource bound to the current region; re-runs when deps change. */
-export function useApi<T>(path: string | null, params: Record<string, string | number | boolean | undefined>) {
+type Params = Record<string, string | number | boolean | undefined>;
+
+/**
+ * Fetch an API resource (TanStack Query: cached, deduplicated, stale requests aborted).
+ * Keeps the previous data visible while a new request for changed params runs.
+ */
+export function useApi<T>(path: string | null, params: Params) {
   const { reportSource } = useAppState();
-  // Result is stored with the request key it belongs to; "loading" is derived (no setState in the effect body).
-  const [result, setResult] = useState<{ key: string; data: T | null; error: string | null } | null>(null);
-  const key = path ? path + JSON.stringify(params) : null;
-  useEffect(() => {
-    if (!path || !key) return;
-    let alive = true;
-    getJSON<T>(path, params)
-      .then(({ data, source }) => {
-        if (!alive) return;
-        setResult({ key, data, error: null });
-        reportSource(path, source);
-      })
-      .catch((e) => { if (alive) setResult((r) => ({ key, data: r?.data ?? null, error: String(e) })); });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  const fresh = result?.key === key;
+  const q = useQuery({
+    queryKey: [path, params],
+    enabled: !!path,
+    placeholderData: keepPreviousData,
+    queryFn: async ({ signal }) => {
+      const r = await getJSON<T>(path!, params, signal);
+      reportSource(path!, r.source);
+      return r.data;
+    },
+  });
   return {
-    data: result?.data ?? null,             // keeps the previous data visible while the new request runs
-    error: fresh ? result!.error : null,
-    loading: key !== null && !fresh,
+    data: (q.data ?? null) as T | null,
+    error: q.error && !q.isFetching ? String(q.error) : null,
+    loading: !!path && (q.isPending || q.isPlaceholderData),
+    refetch: () => { void q.refetch(); },
   };
 }

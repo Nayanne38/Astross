@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { toPng } from "html-to-image";
 import { cn } from "@/lib/utils";
+import { copy } from "@/content/copy";
 
 /** Bordered panel with a title and a PNG export of its content (F6). */
 export function Panel({ title, subtitle, actions, children, className, pngName }: {
@@ -83,9 +84,30 @@ export function Toggle<T extends string>({ value, onChange, options, label }: {
   );
 }
 
-export function Loading({ what = "dados" }: { what?: string }) {
-  return <p className="py-10 text-center text-sm text-muted-foreground" role="status">Carregando {what}…</p>;
+/** Skeleton shown while a data area loads. */
+export function Loading({ what = "dados", height = 160 }: { what?: string; height?: number }) {
+  return (
+    <div role="status" aria-label={`${copy.states.loading} ${what}`} className="animate-pulse space-y-2" style={{ minHeight: height }}>
+      <div className="h-4 w-1/3 rounded bg-muted" />
+      <div className="rounded-lg bg-muted/70" style={{ height: height - 24 }} />
+    </div>
+  );
 }
-export function ErrorBox({ error }: { error: string }) {
-  return <p className="rounded-md border border-fire/50 bg-fire/10 p-3 text-sm text-fire">Não foi possível carregar: {error.slice(0, 200)}</p>;
+
+export function EmptyState({ text = copy.states.empty }: { text?: string }) {
+  return <p className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">{text}</p>;
+}
+
+/** Error state with a retry button. */
+export function ErrorBox({ error, onRetry }: { error: string; onRetry?: () => void }) {
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-fire/50 bg-fire/10 p-3 text-sm">
+      <span className="text-fire">{copy.states.error}</span>
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={error}>{error.slice(0, 160)}</span>
+      {onRetry && (
+        <button type="button" onClick={onRetry}
+          className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-accent pointer-coarse:min-h-11">{copy.states.retry}</button>
+      )}
+    </div>
+  );
 }

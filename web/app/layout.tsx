@@ -1,25 +1,29 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
+import { Inter, Space_Grotesk } from "next/font/google";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
-import { AppStateProvider } from "@/components/app-state";
-import { AppShell } from "@/components/app-shell";
+import { Providers } from "@/components/app-state";
+import { AppShell, ShellFallback } from "@/components/app-shell";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
+const grotesk = Space_Grotesk({ variable: "--font-grotesk", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Calendário de Queimadas",
+  title: "FIREWATCH · Calendário de Queimadas",
   description: "Detecções de calor MODIS + VIIRS harmonizadas (NASA FIRMS): mapa, calendário, dados e harmonização.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="pt-BR" className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="pt-BR" className={`dark ${inter.variable} ${grotesk.variable} h-full antialiased`}>
       <body className="min-h-full">
-        <AppStateProvider>
-          <AppShell>{children}</AppShell>
-        </AppStateProvider>
+        {/* Filters live in the URL (useSearchParams): the shell renders on the client inside this boundary. */}
+        <Suspense fallback={<ShellFallback />}>
+          <Providers>
+            <AppShell>{children}</AppShell>
+          </Providers>
+        </Suspense>
       </body>
     </html>
   );
