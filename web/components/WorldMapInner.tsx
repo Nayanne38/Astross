@@ -66,7 +66,7 @@ export default function WorldMapInner({
         <ZoomControl position="bottomright" />
         {/* Basemaps that need no API key (Esri: attribution required; OSM: light use policy) */}
         <LayersControl position="bottomright">
-          <LayersControl.BaseLayer checked name="Escuro">
+          <LayersControl.BaseLayer checked name="Dark">
             <TileLayer
               url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
               attribution="Base: Esri, HERE, Garmin, © OpenStreetMap | Focos: NASA FIRMS (MODIS/VIIRS)"
@@ -99,7 +99,7 @@ export default function WorldMapInner({
             pathOptions={{ stroke: false, fillColor: fireColor(h.value, hexMax), fillOpacity: 0.8 }}>
             <Tooltip sticky>
               <b>{fmtNum(h.value, 1)}</b> cell-days (harmonized)<br />
-              {h.fire_days} dias com fogo · MODIS {fmtInt(h.modis_count)} · VIIRS {fmtInt(h.viirs_count)}
+              {h.fire_days} fire days · MODIS {fmtInt(h.modis_count)} · VIIRS {fmtInt(h.viirs_count)}
             </Tooltip>
           </Polygon>
         ))}
@@ -107,7 +107,7 @@ export default function WorldMapInner({
           <Polygon key={f.cell_id} positions={f.boundary}
             pathOptions={{ stroke: false, fillColor: RISK[f.risk_class].color, fillOpacity: f.risk_class === "baixo" ? 0.35 : 0.75 }}>
             <Tooltip sticky>
-              Risco <b>{RISK[f.risk_class].label}</b>: {fmtPct(f.probability, 1)} de chance de fogo em 7 dias
+              Risk <b>{RISK[f.risk_class].label}</b>: {fmtPct(f.probability, 1)} chance of fire in 7 days
             </Tooltip>
           </Polygon>
         ))}
@@ -124,7 +124,7 @@ export default function WorldMapInner({
 
       <div className="pointer-events-none absolute inset-x-2 top-2 z-[500] flex flex-wrap items-start justify-between gap-2">
         <div className="pointer-events-auto flex flex-wrap gap-1.5">
-          <button className="map-btn" onClick={() => setTarget({ world: true, n: Date.now() })}>🌎 Mundo</button>
+          <button className="map-btn" onClick={() => setTarget({ world: true, n: Date.now() })}>🌎 World</button>
           {bounds && <button className="map-btn" onClick={() => setTarget({ bounds, n: Date.now() })}>🔥 {regionName ?? "Region"}</button>}
         </div>
         {available.length > 0 && (
@@ -142,7 +142,7 @@ export default function WorldMapInner({
       <div className="absolute bottom-7 left-2 z-[500] rounded-lg bg-panel/90 p-2 text-[11px] backdrop-blur">
         {on.forecast && forecast.length > 0 ? (
           <div className="flex flex-col gap-0.5">
-            <b className="mb-0.5">Chance de fogo (7 dias)</b>
+            <b className="mb-0.5">Fire chance (7 days)</b>
             {(Object.keys(RISK) as (keyof typeof RISK)[]).map((k) => (
               <span key={k} className="flex items-center gap-1.5">
                 <i className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: RISK[k].color }} />
@@ -154,7 +154,7 @@ export default function WorldMapInner({
           <div>
             <b>Fire cell-days</b>
             <div className="mt-1 h-2 w-36 rounded" style={{ background: "linear-gradient(90deg,#fff1c1,#fec44f,#fe9929,#ec7014,#cc4c02,#8c2d04,#4a1402)" }} />
-            <div className="flex justify-between text-muted"><span>pouco</span><span>muito</span></div>
+            <div className="flex justify-between text-muted"><span>less</span><span>more</span></div>
           </div>
         ) : (
           <span className="text-muted">Dashed outline = monitored area</span>

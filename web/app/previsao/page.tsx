@@ -8,7 +8,7 @@ import InsightCard from "@/components/InsightCard";
 import { LearnBox, Panel, State } from "@/components/panel";
 import { RISK_COLORS } from "@/lib/risk-colors";
 import { fmtDate, fmtInt, fmtNum, fmtPct, tpl } from "@/lib/format";
-import type { ForecastResponse } from "@/lib/types";
+import type { ForecastResponse, RecentResponse } from "@/lib/types";
 import { useQ } from "@/lib/use-q";
 
 const RiskMap = dynamic(() => import("@/components/risk-map"), { ssr: false, loading: () => <div className="skeleton h-full w-full" /> });
@@ -18,9 +18,11 @@ const WORLD: [number, number, number, number] = [-170, -58, 180, 78];
 function Inner() {
   const { t, lang, filters: f, meta } = useApp();
   const p = t.prev;
-  const [zoom, setZoom] = useState(false);   // opens on the whole world: no sector is preselected
+  const [zoom, setZoom] = useState(true);    // once a region is chosen the map fits it; "Show the whole world" is one click away
+  const [fires, setFires] = useState(true);
   const reg = meta?.regions.find((r) => r.key === f.region);
   const q = useQ<ForecastResponse>(reg?.live ? "/forecast/live" : "/forecast", reg?.live ? { region: f.region, limit: 6000 } : { region: f.region, horizon: 7, limit: 6000, learn: true, nivel: "estudante" }, !!reg);
+  const live = useQ<RecentResponse>("/live", { region: f.region, days: 2, limit: 8000 }, !!reg);
   const d = q.data;
   const m = d?.metrics;
   const counts = (d?.cells ?? []).reduce<Record<string, number>>((a, c) => ({ ...a, [c.risk_class]: (a[c.risk_class] ?? 0) + 1 }), {});
@@ -37,9 +39,10 @@ function Inner() {
             <Panel title={tpl(p.legendTitle, { h: d.horizon_days })} sub={tpl(p.model, { v: d.model_version ?? "", d: fmtDate(d.forecast_date, lang) })}>
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
                 <span className="text-ink-3">{reg.live ? `${reg.name_en || reg.name}: baseline from the last 5 days of detections (trained model not available here yet)` : `${reg.name_en || reg.name}: trained per-cell model`}</span>
+                <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" checked={fires} onChange={() => setFires((v) => !v)} />Detected fires, last 2 days{live.data ? ` (${fmtInt(live.data.detections.length, lang)})` : ""}</label>
                 <button className="btn-ghost !py-1" onClick={() => setZoom((v) => !v)}>{zoom ? "Show the whole world" : `Zoom to ${reg.name_en || reg.name}`}</button>
               </div>
-              <div className="h-[50dvh] min-h-[320px]"><RiskMap cells={d.cells} bbox={zoom ? reg.bbox : WORLD} lang={lang} labels={p.classes} /></div>
+              <div className="h-[50dvh] min-h-[320px]"><RiskMap cells={d.cells} bbox={zoom ? reg.bbox : WORLD} lang={lang} labels={p.classes} detections={fires ? live.data?.detections : []} /></div>
               <div className="mt-3 flex flex-wrap gap-3 text-xs">
                 {Object.keys(RISK_COLORS).map((k) => (
                   <span key={k} className="flex items-center gap-1.5"><i className="size-3 rounded-sm" style={{ background: RISK_COLORS[k] }} />{p.classes[k]} <b className="tnum">{fmtInt(counts[k] ?? 0, lang)}</b></span>

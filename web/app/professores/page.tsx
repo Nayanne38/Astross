@@ -4,7 +4,7 @@ import { useState } from "react";
 import InsightCard from "@/components/InsightCard";
 import PosterQr from "@/components/PosterQr";
 import WorldMap from "@/components/WorldMap";
-import { type ForecastResponse, type HexGridResponse, type Meta, apiUrl } from "@/lib/fire-data";
+import { type Detection, type ForecastResponse, type HexGridResponse, type Meta, apiUrl } from "@/lib/fire-data";
 import { useApi } from "@/lib/useApi";
 
 interface Plan { area: string; serie: string; tempo: string; titulo: string; objetivos: string[]; bncc: string[]; passos: string[]; perguntas: string[] }
@@ -164,6 +164,7 @@ export default function Professores() {
   const reg = meta.data?.regions.find((r) => r.key === region);
   const hex = useApi<HexGridResponse>(region ? "/hexgrid" : null, { region, limit: 15000 });
   const fc = useApi<ForecastResponse>(region ? "/forecast" : null, { region, min_probability: 0.1 });
+  const live = useApi<{ detections: Detection[]; total?: number }>("/world", { days: 1, limit: 12000 });
   const [tab, setTab] = useState(0);
   const plan = PLANS[tab];
 
@@ -193,9 +194,9 @@ export default function Professores() {
       <Section id="mapa" kicker="Explore" title="Interactive world map"
         aside={<span className="text-xs text-muted">Drag, zoom, and use the &quot;World&quot; and region buttons</span>}>
         <WorldMap bbox={reg?.bbox} regionName={reg?.name} initial="world" hexes={hex.data?.cells} hexMax={hex.data?.max_value}
-          forecast={fc.data?.available ? fc.data.cells : undefined} layers={{ forecast: false }} height={520} />
+          forecast={fc.data?.available ? fc.data.cells : undefined} detections={live.data?.detections} layers={{ forecast: false, detections: true }} height={520} />
         <p className="mt-2 text-xs text-muted">
-          The dashed outline is the area monitored in detail (Matopiba, in the Cerrado). The hexagons show the last 30 days of fire.
+          The dashed outline is the area monitored in detail (Matopiba, in the Cerrado). The hexagons show the last 30 days of fire, and the dots are the hotspots detected worldwide in the last 24 hours (yellow = VIIRS, pink = MODIS).
           The main page also has regions monitored live across several continents.
           {meta.error && <span className="text-bad"> · API unavailable: the map opens without data.</span>}
         </p>

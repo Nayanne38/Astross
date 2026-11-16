@@ -98,8 +98,8 @@ export function fireColor(v: number, max: number): string {
 }
 
 export const RISK: Record<RiskClass, { label: string; color: string; range: string }> = {
-  baixo: { label: "Baixo", color: "#3b82f6", range: "< 10%" },
-  moderado: { label: "Moderado", color: "#facc15", range: "10–30%" },
-  alto: { label: "Alto", color: "#f97316", range: "30–60%" },
-  muito_alto: { label: "Muito alto", color: "#dc2626", range: "≥ 60%" },
+  baixo: { label: "Low", color: "#3b82f6", range: "< 10%" },
+  moderado: { label: "Moderate", color: "#facc15", range: "10–30%" },
+  alto: { label: "High", color: "#f97316", range: "30–60%" },
+  muito_alto: { label: "Very high", color: "#dc2626", range: "≥ 60%" },
 };
