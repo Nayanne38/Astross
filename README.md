@@ -180,7 +180,7 @@ No keys yet? `data/sample/` is **synthetic** (clearly labeled) so the whole pipe
 
 | Name | Role |
 |---|---|
-| Fabricya Nayanne Santos | Front-end developer |
+| Fabricya Nayanne Santos | Front-end developer, web developer |
 | Gyan Luka Souza Santos | Graphic designer |
 | João Victor do Nascimento Silva | Web developer, security researcher |
 | Lucas Gabriel Aguiar Monteiro | Researcher, translator, UX/UI developer |
