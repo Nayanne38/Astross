@@ -21,7 +21,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 
-from api import alerts as alerts_api, edu, llm, queries as q
+from api import alerts as alerts_api, edu, llm, queries as q, telegram_hook
 from api.schemas import (WorldRegionCount, WorldResponse, Anomaly, CalendarCell, CalendarResponse, CalibrationMetric, ComparisonPoint,
                          ComparisonResponse, Detection, ForecastCell, ForecastResponse, HarmonizationPoint,
                          HarmonizationResponse, Health, HexCell, HexGridResponse, Meta, RecentDay,
@@ -51,6 +51,7 @@ app.add_middleware(CORSMiddleware,
                    expose_headers=["Content-Disposition", "X-Row-Count"])
 app.add_middleware(GZipMiddleware, minimum_size=2000)
 app.include_router(alerts_api.router)
+app.include_router(telegram_hook.router)
 
 
 # ------------------------------------------------------------------ common params

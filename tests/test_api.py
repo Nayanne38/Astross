@@ -214,3 +214,17 @@ def test_live_regions(client, monkeypatch):
     assert j["days"][0]["hotspots_total"] == 2 and j["days"][0]["harmonized"] is None
     assert client.get("/live", params={"region": "nope"}).status_code == 404
     assert client.get("/summary", params={"region": "brasil_pantanal"}).status_code == 409
+
+
+def test_telegram_webhook(client, monkeypatch):
+    from alerts import bot
+    seen = []
+    monkeypatch.setattr(bot, "handle", lambda m: seen.append(m))
+    body = {"update_id": 1, "message": {"chat": {"id": 7}, "text": "/status"}}
+    monkeypatch.delenv("TELEGRAM_WEBHOOK_SECRET", raising=False)
+    assert client.post("/telegram/webhook", json=body).status_code == 503
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "s3")
+    assert client.post("/telegram/webhook", json=body).status_code == 403
+    assert client.post("/telegram/webhook", json=body, headers={"X-Telegram-Bot-Api-Secret-Token": "x"}).status_code == 403
+    r = client.post("/telegram/webhook", json=body, headers={"X-Telegram-Bot-Api-Secret-Token": "s3"})
+    assert r.status_code == 200 and seen == [body["message"]]

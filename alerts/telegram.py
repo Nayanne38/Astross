@@ -69,3 +69,12 @@ def updates(offset: int | None, timeout: int = 25) -> list[dict]:
     if not data.get("ok"):
         raise TelegramError(f"Telegram: {data.get('description', 'erro desconhecido')}")
     return data["result"]
+
+
+def set_webhook(url: str, secret: str) -> None:
+    """Point Telegram at the API (instant replies, no process to keep alive). Disables getUpdates polling."""
+    _call("setWebhook", url=url, secret_token=secret, allowed_updates=["message"], drop_pending_updates=False)
+
+
+def delete_webhook() -> None:
+    _call("deleteWebhook", drop_pending_updates=False)

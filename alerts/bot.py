@@ -87,5 +87,18 @@ def run() -> None:
             time.sleep(5)
 
 
+def scan_once() -> dict:
+    """One FIRMS alert scan and exit. Used by the scheduled GitHub Actions job (no process stays alive)."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    if not telegram.token():
+        raise SystemExit("TELEGRAM_BOT_TOKEN is not configured.")
+    return engine.scan()
+
+
 if __name__ == "__main__":
-    run()
+    import sys
+    if "--scan" in sys.argv:
+        print(scan_once())
+    else:
+        run()
