@@ -11,3 +11,14 @@ ml
 !README.md
 node_modules
 .venv
+
+.git
+.vercel
+data/raw
+data/**/*.parquet
+data/**/*.pkl
+data/**/*.csv
+data/**/*.db
+data/**/*.zip
+*.tgz
+.env
