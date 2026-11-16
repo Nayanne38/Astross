@@ -1,6 +1,7 @@
 // Fetch layer. Every successful GET is cached in localStorage so the app keeps working offline
 // (the status bar shows "modo offline" when a response came from that cache).
 import type { Lang } from "./i18n";
+import { STATIC, staticCsv, staticUrl } from "./static-data";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8010";
 export type Params = Record<string, string | number | boolean | undefined | null>;
@@ -10,6 +11,7 @@ export function setApiLang(l: Lang) { apiLang = l; }
 export function getApiLang(): Lang { return apiLang; }
 
 export function apiUrl(path: string, params: Params = {}): string {
+  if (STATIC) return path === "/export.csv" ? staticCsv(params) : (staticUrl(path, params) ?? "#");
   const u = new URL(path, API_URL);
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") u.searchParams.set(k, String(v));
   return u.toString();
@@ -28,6 +30,13 @@ export class ApiError extends Error { constructor(msg: string, public status: nu
 export interface Fetched<T> { data: T; offline: boolean }
 
 export async function getJSON<T>(path: string, params: Params = {}, signal?: AbortSignal): Promise<Fetched<T>> {
+  if (STATIC) {
+    const url = staticUrl(path, params);
+    if (!url) throw new ApiError("This view is not available in the static (GitHub Pages) edition.", 404);
+    const r = await fetch(url, { signal });
+    if (!r.ok) throw new ApiError("No pre-generated data for this region yet.", r.status);
+    return { data: (await r.json()) as T, offline: false };
+  }
   const p = { lang: apiLang, ...params };
   const key = cacheKey(path, p);
   try {
@@ -52,5 +61,6 @@ export async function getJSON<T>(path: string, params: Params = {}, signal?: Abo
 }
 
 export function csvUrl(params: Params): string {
+  if (STATIC) return staticCsv(params);
   return apiUrl("/export.csv", { lang: apiLang, ...params });
 }

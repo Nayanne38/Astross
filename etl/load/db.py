@@ -7,6 +7,7 @@ Backends (DB_BACKEND in .env):
 """
 from __future__ import annotations
 
+import os
 import io
 import logging
 from typing import Iterable
@@ -27,6 +28,8 @@ def engine() -> Engine:
     if _engine is None:
         url = database_url()
         kw = {"pool_pre_ping": True}
+        if os.getenv("VERCEL"):                  # serverless: tiny pool per instance (reuse connections, never hoard them)
+            kw.update(pool_size=2, max_overflow=0, pool_recycle=240)
         if url.startswith("sqlite"):
             kw["connect_args"] = {"timeout": 60}
         _engine = create_engine(url, **kw)

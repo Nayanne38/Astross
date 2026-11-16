@@ -1,0 +1,6 @@
+-r requirements.txt
+pyarrow>=17
+lightgbm>=4.3
+scikit-learn>=1.5
+matplotlib>=3.9
+pytest>=8.0

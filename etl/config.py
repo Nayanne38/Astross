@@ -58,7 +58,10 @@ def get_region(key: str | None = None) -> Region:
 
 def path(name: str) -> Path:
     p = ROOT / settings()["paths"][name]
-    p.mkdir(parents=True, exist_ok=True)
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except OSError:          # read-only filesystem (serverless): reads still work, nothing is written here
+        pass
     return p
 
 

@@ -1,0 +1,154 @@
+{
+  "model_version": "lgbm-7d-v2",
+  "trained_at": "2026-11-15T17:24:59+00:00",
+  "region": "matopiba",
+  "source": "parquet",
+  "target": "P(>=1 fire-cell-day in the cell in the next 7 days)",
+  "horizon_days": 7,
+  "data_window": [
+    "2016-01-01",
+    "2026-11-15"
+  ],
+  "n_cells": 33459,
+  "origins_step_days": 7,
+  "train_negative_fraction": 0.3,
+  "train": {
+    "rows": 1760162,
+    "origins": [
+      "2017-01-06",
+      "2019-12-20"
+    ],
+    "positive_rate": 0.056
+  },
+  "valid": {
+    "rows": 5219604,
+    "origins": [
+      "2020-01-03",
+      "2022-12-23"
+    ],
+    "positive_rate": 0.0578
+  },
+  "test": {
+    "rows": 6725259,
+    "origins": [
+      "2023-01-06",
+      "2026-11-06"
+    ],
+    "positive_rate": 0.0555
+  },
+  "hyperparameters": {
+    "num_leaves": 127,
+    "min_child_samples": 100,
+    "rounds": 53,
+    "learning_rate": 0.05
+  },
+  "tuning_trials": [
+    {
+      "num_leaves": 31,
+      "min_child_samples": 100,
+      "best_iteration": 669,
+      "valid_pr_auc": 0.3448
+    },
+    {
+      "num_leaves": 31,
+      "min_child_samples": 1000,
+      "best_iteration": 275,
+      "valid_pr_auc": 0.3442
+    },
+    {
+      "num_leaves": 127,
+      "min_child_samples": 100,
+      "best_iteration": 53,
+      "valid_pr_auc": 0.3451
+    },
+    {
+      "num_leaves": 127,
+      "min_child_samples": 1000,
+      "best_iteration": 55,
+      "valid_pr_auc": 0.3445
+    }
+  ],
+  "calibration": "isotonic regression fitted on the validation block",
+  "metrics": {
+    "model": {
+      "roc_auc": 0.8717,
+      "pr_auc": 0.3593,
+      "brier": 0.04247,
+      "ece": 0.0026,
+      "top10_capture": 0.5473
+    },
+    "model_uncalibrated": {
+      "roc_auc": 0.8717,
+      "pr_auc": 0.3624,
+      "brier": 0.04246,
+      "ece": 0.0039,
+      "top10_capture": 0.5473
+    },
+    "persistence": {
+      "roc_auc": 0.644,
+      "pr_auc": 0.1708,
+      "brier": 0.05016,
+      "ece": 0.0327,
+      "top10_capture": 0.3361
+    },
+    "climatology": {
+      "roc_auc": 0.822,
+      "pr_auc": 0.2447,
+      "brier": 0.04708,
+      "ece": 0.0184,
+      "top10_capture": 0.4514
+    }
+  },
+  "test_by_year": {
+    "2023": {
+      "rows": 1739868,
+      "pr_auc": 0.3843,
+      "climatology_pr_auc": 0.2687
+    },
+    "2024": {
+      "rows": 1739868,
+      "pr_auc": 0.3745,
+      "climatology_pr_auc": 0.247
+    },
+    "2025": {
+      "rows": 1739868,
+      "pr_auc": 0.3482,
+      "climatology_pr_auc": 0.242
+    },
+    "2026": {
+      "rows": 1505655,
+      "pr_auc": 0.3079,
+      "climatology_pr_auc": 0.1857
+    }
+  },
+  "beats_baselines_pr_auc": {
+    "persistence": true,
+    "climatology": true
+  },
+  "feature_importance_gain": {
+    "clim_frac": 5698178.3,
+    "frp30_log": 1254081.5,
+    "clim_mean": 1100701.7,
+    "days_since_fire": 1050381.1,
+    "nbr_fd30": 273440.9,
+    "clim_frac_next": 233675.1,
+    "nbr_fd7": 219391.7,
+    "fd14": 190423.9,
+    "reg_fd7_log": 189757.1,
+    "reg_trend": 145575.1,
+    "reg_ly_fd7_log": 132734.1,
+    "fd7": 98783.4,
+    "fd365": 78011.8,
+    "month_cos": 61969.7,
+    "ly_nbr_fd7": 51851.9,
+    "fd30": 49091.0,
+    "month_sin": 28335.7,
+    "fd60": 19800.9,
+    "ly_fd7": 13694.2
+  },
+  "notes": [
+    "Split temporal por anos: treino até 2019-12-31, validação até 2022-12-31 (hiperparâmetros, early stopping e calibração), teste depois — nenhum alvo cruza a fronteira dos blocos.",
+    "Probabilidades calibradas (regressão isotônica na validação): uma célula com 30% deve queimar ~3 em cada 10 vezes.",
+    "Sem variáveis meteorológicas (chuva, umidade, vento): o modelo só usa histórico de fogo."
+  ]
+}

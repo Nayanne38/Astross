@@ -1,0 +1,13 @@
+web
+docs
+tests
+design
+hop
+deploy
+scripts
+ml
+.github
+*.md
+!README.md
+node_modules
+.venv

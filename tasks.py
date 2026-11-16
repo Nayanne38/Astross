@@ -35,7 +35,7 @@ def not_yet(phase: int):
 def setup(*_):
     if not PY.exists():
         run(sys.executable, "-m", "venv", VENV)
-    py("-m", "pip", "install", "-r", "requirements.txt")
+    py("-m", "pip", "install", "-r", "requirements-dev.txt")
     if not (ROOT / ".env").exists():
         shutil.copy(ROOT / ".env.example", ROOT / ".env")
         print("Created .env from .env.example — add FIRMS_MAP_KEY to use real data.")

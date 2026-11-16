@@ -22,7 +22,10 @@ COLS = ["lat", "lon", "when_utc", "date", "satellite", "frp", "confidence", "day
 
 def _dir():
     d = path("processed") / "live_store"
-    d.mkdir(parents=True, exist_ok=True)
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     return d
 
 

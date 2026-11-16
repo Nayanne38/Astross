@@ -60,15 +60,18 @@ export interface Insight {
 export interface ForecastInsight { region: string; forecast_date: string; horizon_days: number; audience: "geral" | "professor"; model: string; insight: Insight; disclaimer: string }
 
 // ------------------------------------------------------------------ fetching
+import { STATIC, staticCsv, staticUrl } from "./static-data";
 export type Params = Record<string, string | number | boolean | undefined | null>;
 
 export function apiUrl(path: string, params: Params = {}): string {
+  if (STATIC) return path === "/export.csv" ? staticCsv(params) : (staticUrl(path, params) ?? "#");
   const u = new URL(path, API_URL);
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") u.searchParams.set(k, String(v));
   return u.toString();
 }
 
 export async function api<T>(path: string, params: Params = {}, init?: RequestInit): Promise<T> {
+  if (STATIC && apiUrl(path, params) === "#") throw new Error("This view is not available in the static (GitHub Pages) edition.");
   const r = await fetch(apiUrl(path, params), init);
   if (!r.ok) {
     let detail = r.statusText;
