@@ -721,6 +721,55 @@ def export_csv(a: Area = Depends(), kind: str = Query("history", pattern="^(hist
 _INSIGHTS: dict = {}
 
 
+# Insights are slow (~30 s on Opus) and serverless instances do not share memory, so the result is also kept
+# in the database (shared by every instance). Any failure here must never break the endpoint.
+def _icache_key(ck: tuple) -> str:
+    return "|".join(str(x) for x in ck)
+
+
+def _icache_ready() -> bool:
+    try:
+        with db.engine().begin() as c:
+            c.execute(text("CREATE TABLE IF NOT EXISTS insight_cache (cache_key TEXT PRIMARY KEY, payload TEXT NOT NULL, "
+                           "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
+            if db.engine().dialect.name == "postgresql":      # same convention as the rest: RLS on, no public policies
+                c.execute(text("ALTER TABLE insight_cache ENABLE ROW LEVEL SECURITY"))
+        return True
+    except Exception:
+        logging.getLogger("api").exception("insight cache unavailable")
+        return False
+
+
+def _icache_get(ck: tuple):
+    try:
+        if not _icache_ready():
+            return None
+        with db.engine().connect() as c:
+            row = c.execute(text("SELECT payload FROM insight_cache WHERE cache_key = :k"), {"k": _icache_key(ck)}).first()
+        return llm.Insight.model_validate_json(row[0]) if row else None
+    except Exception:
+        return None
+
+
+def _icache_put(ck: tuple, ins) -> None:
+    try:
+        with db.engine().begin() as c:
+            c.execute(text("INSERT INTO insight_cache (cache_key, payload) VALUES (:k, :p) "
+                           "ON CONFLICT (cache_key) DO UPDATE SET payload = excluded.payload"),
+                      {"k": _icache_key(ck), "p": ins.model_dump_json()})
+    except Exception:
+        logging.getLogger("api").exception("could not store insight in cache")
+
+
+def _icache_clear() -> None:
+    _INSIGHTS.clear()
+    try:
+        with db.engine().begin() as c:
+            c.execute(text("DELETE FROM insight_cache"))
+    except Exception:
+        pass
+
+
 def insight_context(region: str, horizon: int, top_n: int = 15, lang: str = "en") -> dict:
     """Everything Claude may cite. Probabilities come only from risk_forecasts (the model)."""
     f = q.forecast(region, horizon)
@@ -772,10 +821,15 @@ def forecast_insight(region: Optional[str] = Query(None), horizon: int = Query(7
         raise HTTPException(503, "Previsão ainda não disponível. Rode: python tasks.py train && python tasks.py forecast")
     ck = (key, horizon, audience, lang, str(f.forecast_date.iloc[0]))
     if ck not in _INSIGHTS:
-        try:
-            _INSIGHTS[ck] = llm.generate_insight(insight_context(key, horizon, lang=lang), audience, lang)
-        except llm.InsightUnavailable as e:
-            raise HTTPException(503, str(e))
+        cached = _icache_get(ck)
+        if cached is not None:
+            _INSIGHTS[ck] = cached
+        else:
+            try:
+                _INSIGHTS[ck] = llm.generate_insight(insight_context(key, horizon, lang=lang), audience, lang)
+            except llm.InsightUnavailable as e:
+                raise HTTPException(503, str(e))
+            _icache_put(ck, _INSIGHTS[ck])
     ins = _INSIGHTS[ck]
     return ForecastInsight(region=key, forecast_date=f.forecast_date.iloc[0], horizon_days=horizon,
                            audience=audience, model=llm.MODEL, insight=ins.model_dump(),

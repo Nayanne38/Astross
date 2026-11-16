@@ -133,7 +133,7 @@ def test_forecast_insight(client, monkeypatch):
         "probability": [0.7, 0.4, 0.2, 0.1, 0.05, 0.03, 0.02], "risk_class":
         ["muito_alto", "alto", "moderado", "moderado", "baixo", "baixo", "baixo"], "model_version": "test"}))
     queries.clear_cache()
-    main._INSIGHTS.clear()
+    main._icache_clear()
     seen = {}
 
     def fake(context, audience, lang="en"):
@@ -152,7 +152,7 @@ def test_forecast_insight(client, monkeypatch):
     def boom(*_):
         raise llm.InsightUnavailable("sem chave")
     monkeypatch.setattr(llm, "generate_insight", boom)
-    main._INSIGHTS.clear()
+    main._icache_clear()
     r = client.get(f"/forecast/insight?{R}")
     assert r.status_code == 503 and "sem chave" in r.json()["detail"]
 
@@ -228,3 +228,21 @@ def test_telegram_webhook(client, monkeypatch):
     assert client.post("/telegram/webhook", json=body, headers={"X-Telegram-Bot-Api-Secret-Token": "x"}).status_code == 403
     r = client.post("/telegram/webhook", json=body, headers={"X-Telegram-Bot-Api-Secret-Token": "s3"})
     assert r.status_code == 200 and seen == [body["message"]]
+
+
+def test_insight_cache_survives_new_instance(client, monkeypatch):
+    """A fresh serverless instance (empty memory) must reuse the insight stored in the database, not call Claude again."""
+    from api import llm
+    import api.main as main
+    calls = []
+
+    def fake(context, audience, lang="en"):
+        calls.append(1)
+        return llm.Insight(titulo="t", resumo="r", areas_prioritarias=[], fatores=[], confianca="media",
+                           justificativa_confianca="j", limitacoes=[], recomendacoes=[])
+    monkeypatch.setattr(llm, "generate_insight", fake)
+    main._icache_clear()
+    assert client.get(f"/forecast/insight?{R}&audience=professor").status_code == 200
+    main._INSIGHTS.clear()                                   # new instance: memory is gone, the database remains
+    assert client.get(f"/forecast/insight?{R}&audience=professor").status_code == 200
+    assert len(calls) == 1
