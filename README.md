@@ -1,18 +1,44 @@
 <div align="center">
 
-<img src="docs/assets/space-apps-logo.png" alt="NASA International Space Apps Challenge" width="220" />
+<a href="https://www.spaceappschallenge.org/"><img src="docs/assets/space-apps-logo.png" alt="NASA International Space Apps Challenge" width="200" /></a>
 
-<img src="docs/assets/firetrack-logo.svg" alt="FireTrack" width="96" />
+<br/><br/>
 
-# FireTrack
+<img src="docs/assets/astros-logo.png" alt="AstroS Team" width="300" />
 
-**One consistent, global fire record from two generations of NASA satellites — with a calendar, a 7-day risk forecast and real-time alerts for anyone on Earth.**
+# 🔥 FireTrack
 
-*NASA Space Apps Challenge 2026 · Challenge: **Harmonization of MODIS & VIIRS Hot Spots***
+### One consistent, global fire record from two generations of NASA satellites,<br/>with a calendar, a 7-day risk forecast and real-time alerts for anyone on Earth.
 
-[Problem](#the-problem) · [Solution](#the-solution) · [Results](#verified-results) · [Quick start](#quick-start) · [Architecture](#architecture) · [Limitations](#honest-limitations) · [Team](#team)
+<br/>
+
+[![Live app](https://img.shields.io/badge/▶_Live_app-nayanne38.github.io/FireTrack-e8590c?style=for-the-badge)](https://nayanne38.github.io/FireTrack/)
+[![API docs](https://img.shields.io/badge/API-OpenAPI_docs-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://firetrack-api.vercel.app/docs)
+[![Telegram bot](https://img.shields.io/badge/Telegram-@AtrossFireTrack__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/AtrossFireTrack_bot)
+
+![NASA Space Apps 2026](https://img.shields.io/badge/NASA_Space_Apps-2026-0B3D91?style=flat-square&logo=nasa&logoColor=white)
+![Challenge](https://img.shields.io/badge/Challenge-MODIS_%26_VIIRS_Hot_Spots-b91c1c?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
+![Claude](https://img.shields.io/badge/AI-Claude-D97757?style=flat-square&logo=anthropic&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-42_passing-2ea44f?style=flat-square)
+
+*NASA Space Apps Challenge 2026 · **Harmonization of MODIS & VIIRS Hot Spots** · Team **AstroS** · Brazil*
+
+[Problem](#the-problem) · [Solution](#the-solution) · [Results](#verified-results) · [Live system](#live-system) · [Architecture](#architecture) · [Quick start](#quick-start) · [Limitations](#honest-limitations) · [Team](#team)
 
 </div>
+
+<table align="center">
+<tr>
+<td align="center"><b>14.1 M</b><br/>detections processed</td>
+<td align="center"><b>0.986</b><br/>monthly R² after harmonization<br/><sub>(raw MODIS: 0.32)</sub></td>
+<td align="center"><b>0.872</b><br/>ROC-AUC of the 7-day risk model<br/><sub>(climatology: 0.822)</sub></td>
+<td align="center"><b>24 h</b><br/>worldwide map, ~80 k hotspots</td>
+</tr>
+</table>
 
 ---
 
@@ -44,11 +70,11 @@ and in 2026, then builds tools on top of it.
 
 | Feature | What it does |
 |---|---|
-| **Worldwide hotspot map** | Every heat detection of the last days from MODIS + VIIRS, on a light basemap. Opens with **no filter selected**. Click a hotspot → exact coordinates, **Open in Google Maps / Satellite view**. |
+| **Worldwide hotspot map** | Every heat detection of the last 24 h from MODIS + VIIRS, on a light basemap. Opens with **no filter selected**. Click a hotspot → exact coordinates, **Open in Google Maps / Satellite view**. |
 | **Fire calendar (2003 → today)** | Harmonized year × month heatmap per region, with anomaly of the current month. |
 | **Harmonization view** | Before/after chart and validation metrics: see the 2012 step shrink. |
 | **7-day risk forecast** | Per-cell probability from a calibrated LightGBM model; for live regions a transparent persistence baseline. **Claude** explains the numbers in plain language (it never invents them). |
-| **Real alerts (Telegram)** | Anyone in the world signs up with an international phone number and a confirmed address; firefighters register a city. A single FIRMS query every 15 min covers all recipients. |
+| **Real alerts (Telegram)** | Anyone in the world signs up with an international phone number and a confirmed address; firefighters register a city. A single FIRMS query every 5 min covers all recipients; the bot answers instantly through a webhook. |
 | **For teachers** | World map, concepts, three lesson plans (Geography, Science, Statistics), glossary, CSV downloads. |
 | **Open data** | Filtered CSV export, documented REST API (OpenAPI at `/docs`). |
 
@@ -94,21 +120,35 @@ We treat these as part of the result, not as footnotes.
 6. **The LLM does not predict.** Probabilities come from the statistical model; Claude only interprets them, with a prompt that forbids inventing numbers.
 7. Non-Brazilian emergency numbers in the app were compiled from public lists and **need local verification**.
 
+## Live system
+
+Everything runs in the cloud, **nothing depends on a developer's laptop**.
+
+| Piece | Where | Notes |
+|---|---|---|
+| Web app | **GitHub Pages**: <https://nayanne38.github.io/FireTrack/> | Static export of Next.js, built by `.github/workflows/pages.yml` |
+| API | **Vercel** (FastAPI serverless): <https://firetrack-api.vercel.app/docs> | Worldwide map straight from NASA FIRMS (10-min cache) + history from the database |
+| Database | **Supabase** (Postgres, row-level security) | Harmonized series, forecasts, alert registrations |
+| Telegram bot | Webhook on the API (`/telegram/webhook`, secret-protected) | Replies instantly, no process to keep alive |
+| Alert scan | **GitHub Actions**, every 5 min (`alerts.yml`) | One FIRMS query for all recipients, each fire sent once |
+| History series | GitHub Actions on demand (`history.yml`) | Free FIRMS country archives → Supabase |
+
 ## Architecture
 
 ```mermaid
 flowchart LR
     F[NASA FIRMS<br/>MODIS + VIIRS] --> E[ETL<br/>filters · footprint dedup · H3]
     E --> H[Harmonization<br/>MODIS → VIIRS scale]
-    H --> D[(Supabase Postgres<br/>or SQLite)]
-    F --> W[Worker<br/>rolling 30-day world store]
-    D --> A[FastAPI]
-    W --> A
-    A --> N[Next.js app<br/>map · calendar · forecast]
+    H --> D[(Supabase Postgres)]
+    D --> A[FastAPI on Vercel]
+    F -->|live, 10-min cache| A
+    A --> N[Next.js app<br/>GitHub Pages]
     A --> L[Claude<br/>explains forecasts]
-    F --> B[Alert engine<br/>every 15 min]
-    B --> T[Telegram bot]
+    G[GitHub Actions<br/>every 5 min] --> B[Alert engine]
+    F --> B
     D --> B
+    B --> T[Telegram]
+    T -->|webhook| A
 ```
 
 | Layer | Stack |
@@ -118,9 +158,9 @@ flowchart LR
 | Harmonization | Quantile mapping per month, leave-one-year-out validation |
 | Storage | Supabase/Postgres (row-level security, retention windows) · SQLite fallback · local parquet |
 | ML | LightGBM, isotonic calibration, strict temporal split |
-| API | FastAPI + Pydantic, CSV export, OpenAPI docs |
-| Web | Next.js 16 · React 19 · Tailwind 4 · TanStack Query · react-leaflet (installable PWA) |
-| Alerts | Telegram long-polling bot, Nominatim geocoding, E.164 phone validation |
+| API | FastAPI + Pydantic on Vercel serverless, CSV export, OpenAPI docs |
+| Web | Next.js 16 · React 19 · Tailwind 4 · TanStack Query · react-leaflet (static export, installable PWA) |
+| Alerts | Telegram webhook + scheduled scan (GitHub Actions), Nominatim geocoding, E.164 phone validation |
 | AI | Claude (server-side only) for plain-language interpretation |
 
 More detail: [docs/METHODOLOGY.md](docs/METHODOLOGY.md) · [docs/DATA_DICTIONARY.md](docs/DATA_DICTIONARY.md) · [docs/PLAN.md](docs/PLAN.md) · [docs/APRESENTACAO.md](docs/APRESENTACAO.md)
@@ -137,8 +177,8 @@ python tasks.py forecast   # writes risk_forecasts
 python tasks.py api        # http://localhost:8000/docs   (API_PORT)
 python tasks.py web        # http://localhost:3000
 python tasks.py worker     # keeps a rolling 30-day worldwide store fresh (optional)
-python tasks.py bot        # Telegram alerts (needs TELEGRAM_BOT_TOKEN)
-python tasks.py test       # 41 backend tests;  cd web && npm test  (9 front-end tests)
+python tasks.py bot        # local Telegram polling (in production: webhook + GitHub Actions)
+python tasks.py test       # 42 backend tests;  cd web && npm test  (9 front-end tests)
 ```
 
 No keys yet? `data/sample/` is **synthetic** (clearly labeled) so the whole pipeline runs offline.
@@ -150,13 +190,13 @@ No keys yet? `data/sample/` is **synthetic** (clearly labeled) so the whole pipe
 | `FIRMS_MAP_KEY` | NASA FIRMS key — free at <https://firms.modaps.eosdis.nasa.gov/api/area/> |
 | `DB_BACKEND`, `DATABASE_URL`, `SQLITE_PATH` | `supabase` \| `postgres` \| `sqlite` (Supabase **session pooler**, port 5432) |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Server-side only, for `/forecast/insight` |
-| `TELEGRAM_BOT_TOKEN`, `APP_PUBLIC_URL` | Alerts; the public URL must be reachable from the user's phone |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `APP_PUBLIC_URL` | Alerts; register the webhook with `python -m alerts.webhook set <api>/telegram/webhook` |
 | `API_CORS_ORIGINS`, `API_PORT`, `REGION` | API settings; the web app reads `NEXT_PUBLIC_API_URL` from `web/.env.local` |
 
 ### Main API routes
 
 `/meta` · `/world` · `/live` · `/recent` · `/calendar` · `/summary` · `/hexgrid` · `/harmonization` · `/comparison` ·
-`/forecast` · `/forecast/live` · `/forecast/insight` · `/export.csv` · `/glossary` · `/alerts/*`
+`/forecast` · `/forecast/live` · `/forecast/insight` · `/export.csv` · `/glossary` · `/alerts/*` · `/telegram/webhook`
 
 ## Sustainable Development Goals
 
@@ -175,6 +215,8 @@ No keys yet? `data/sample/` is **synthetic** (clearly labeled) so the whole pipe
 - **AI disclosure:** the base layout of the presentation was drafted with Claude; project information was gathered with the help of ChatGPT; the application code was developed with Claude Code, and Claude is used at runtime to explain forecasts. Every reported metric was computed by the project's own code and is reproducible.
 
 ## Team
+
+<div align="center"><img src="docs/assets/astros-logo.png" alt="AstroS" width="160" /></div>
 
 **AstroS Team** — Brazil
 
