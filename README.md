@@ -1,10 +1,6 @@
 <div align="center">
 
-<a href="https://www.spaceappschallenge.org/"><img src="docs/assets/space-apps-logo.png" alt="NASA International Space Apps Challenge" width="200" /></a>
-
-<br/><br/>
-
-<img src="docs/assets/astros-logo.png" alt="AstroS Team" width="300" />
+<img src="docs/assets/hero-banner.png" alt="NASA International Space Apps Challenge × AstroS Team: FireTrack" width="100%" />
 
 # 🔥 FireTrack
 
