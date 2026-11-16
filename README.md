@@ -8,6 +8,8 @@
 
 <br/>
 
+### 🌐 **Site: [https://nayanne38.github.io/FireTrack/](https://nayanne38.github.io/FireTrack/)**
+
 [![Live app](https://img.shields.io/badge/▶_Live_app-nayanne38.github.io/FireTrack-e8590c?style=for-the-badge)](https://nayanne38.github.io/FireTrack/)
 [![API docs](https://img.shields.io/badge/API-OpenAPI_docs-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://firetrack-api.vercel.app/docs)
 [![Telegram bot](https://img.shields.io/badge/Telegram-@AtrossFireTrack__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/AtrossFireTrack_bot)
