@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/hero-banner.png" alt="NASA International Space Apps Challenge × AstroS Team: FireTrack" width="100%" />
+<img src="docs/assets/hero-banner.png" alt="NASA International Space Apps Challenge × Astros" width="100%" />
 
-# 🔥 FireTrack
+# 🔥 Astros
 
 ### One consistent, global fire record from two generations of NASA satellites,<br/>with a calendar, a 7-day risk forecast and real-time alerts for anyone on Earth.
 
@@ -21,7 +21,7 @@
 ![Claude](https://img.shields.io/badge/AI-Claude-D97757?style=flat-square&logo=anthropic&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-42_passing-2ea44f?style=flat-square)
 
-*NASA Space Apps Challenge 2026 · **Harmonization of MODIS & VIIRS Hot Spots** · Team **AstroS** · Brazil*
+*NASA Space Apps Challenge 2026 · **Harmonization of MODIS & VIIRS Hot Spots** · Team **Astros** · Brazil*
 
 [Problem](#the-problem) · [Solution](#the-solution) · [Results](#verified-results) · [Live system](#live-system) · [Architecture](#architecture) · [Quick start](#quick-start) · [Limitations](#honest-limitations) · [Team](#team)
 
@@ -54,7 +54,7 @@ Terra/Aqua), so a long-running series is urgent — and people on the ground nee
 
 ## The solution
 
-**Harmonize before telling.** FireTrack turns the raw detections into one series that means the same thing in 2005
+**Harmonize before telling.** Astros turns the raw detections into one series that means the same thing in 2005
 and in 2026, then builds tools on top of it.
 
 ```
@@ -196,7 +196,7 @@ No keys yet? `data/sample/` is **synthetic** (clearly labeled) so the whole pipe
 
 ## Sustainable Development Goals
 
-| SDG | How FireTrack contributes |
+| SDG | How Astros contributes |
 |---|---|
 | **13 · 15** Climate action · Life on land | Monitor fire patterns and anomalies by region, year and season |
 | **4** Quality education | Teachers' page and lesson plans that teach how to question data |
@@ -212,9 +212,9 @@ No keys yet? `data/sample/` is **synthetic** (clearly labeled) so the whole pipe
 
 ## Team
 
-<div align="center"><img src="docs/assets/astros-logo.png" alt="AstroS" width="160" /></div>
+<div align="center"><img src="docs/assets/astros-logo.png" alt="Astros" width="160" /></div>
 
-**AstroS Team** — Brazil
+**Astros Team** — Brazil
 
 | Name | Role |
 |---|---|
