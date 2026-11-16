@@ -1,4 +1,4 @@
-# Publishes the static export of the web app to GitHub Pages: https://<user>.github.io/Astross/
+# Publishes the static export of the web app to GitHub Pages: https://<user>.github.io/FireTrack/
 # One-time: repo Settings -> Pages -> Source: "GitHub Actions"; Settings -> Variables -> Actions ->
 # NEXT_PUBLIC_API_URL = HTTPS address of the FastAPI backend on Vercel (no trailing slash).
 name: Deploy to GitHub Pages
@@ -21,7 +21,8 @@ jobs:
     env:
       GH_PAGES: "1"
       NEXT_PUBLIC_STATIC: "1"
-      NEXT_PUBLIC_BASE_PATH: /Astross
+      NEXT_PUBLIC_BASE_PATH: /FireTrack
+      NEXT_PUBLIC_CARTO_KEY: ${{ vars.NEXT_PUBLIC_CARTO_KEY }}
       NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}   # the FastAPI backend on Vercel
     steps:
       - uses: actions/checkout@v4

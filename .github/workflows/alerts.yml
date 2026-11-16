@@ -15,7 +15,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      APP_PUBLIC_URL: https://nayanne38.github.io/Astross
+      APP_PUBLIC_URL: https://nayanne38.github.io/FireTrack
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
