@@ -443,7 +443,11 @@ def _fires(bbox, days: int):
             return live_store.fires(days, tuple(bbox))
     except Exception:
         pass
-    return firms_live.fetch(tuple(bbox), days=days)
+    # FIRMS day_range=N means the last N UTC *dates*: right after 00:00 UTC "1" holds almost nothing.
+    # Ask for one extra date and keep a true rolling window of days*24 h.
+    from datetime import datetime, timedelta, timezone
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24 * days)
+    return [f for f in firms_live.fetch(tuple(bbox), days=min(days + 1, 5)) if f.when_utc >= cutoff]
 _LIVE_TTL_S = 600  # NRT updates every few hours; 10 min keeps us far below the FIRMS transaction limits
 
 

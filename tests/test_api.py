@@ -200,7 +200,7 @@ def test_live_regions(client, monkeypatch):
     assert len(live) >= 10 and all(r["group"] and r["data_start"] is None for r in live)
     assert any(not r["live"] for r in meta["regions"])
 
-    now = datetime(2026, 11, 15, 14, 30, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     fake = [firms_live.Fire(-17.0, -57.0, now, "NOAA-20 (VIIRS)", 12.5, "nominal", "D"),
             firms_live.Fire(-17.01, -57.01, now, "Terra (MODIS)", 40.0, "alta", "N")]
     monkeypatch.setattr(firms_live, "fetch", lambda bbox, days=1, client=None: fake)
